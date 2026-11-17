@@ -1,0 +1,8 @@
+data/
+*.html
+chat.json
+eda_out/
+prompt_bank.json
+__pycache__/
+.env
+.dev.vars
