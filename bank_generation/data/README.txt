@@ -1,11 +1,11 @@
-Here is where your data will be.
+Your chat data goes here. Nothing in this folder except this README is committed to the repo.
 
 Put your Instagram export here:
-  data/raw/message_1.html ... message_N.html
+  data/message_1.html ... message_N.html
 
 The scripts create:
   data/chat.json
   data/eda_out/
   data/prompt_bank.json
 
-None of these files are committed to the repo.
+See ../README.md for how to run them.
