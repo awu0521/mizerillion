@@ -1,4 +1,5 @@
 data/
+!data/README.txt
 *.html
 chat.json
 eda_out/
