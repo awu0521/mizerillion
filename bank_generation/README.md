@@ -8,7 +8,7 @@ bank_generation/
 └── tools/
     ├── html_to_json.py   export HTML → chat.json
     ├── eda.py            chat.json → stats, charts, report
-    ├── make_prompts.py   chat.json + stats → prompt_bank.json   (not in the repo yet)
+    ├── make_prompts.py   chat.json + stats → prompt_bank.json
     └── requirements.txt
 ```
 
@@ -45,6 +45,7 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
 - **Like emojis:** edit `LIKE_EMOJIS` at the top of `html_to_json.py`. ❤ counts as a like from anyone. Each person's own emoji counts as a like only when they use it; from anyone else it's a normal reaction. Names are display names from the export, matched case-insensitively by prefix.
 - **Excluded senders:** `EXCLUDE` in `eda.py` (default: `Instagram User`, `Meta AI`) is left out of the stats.
 - **Regulars:** `CORE_MIN_MESSAGES` in `eda.py` (default 1000) sets who gets their own row in the per-person tables.
+- **Prompt answers:** at the top of `make_prompts.py`, `PERSON_ALIASES` lists the names people might type for each member, `EMOJI_WORDS` lists words accepted in place of emoji, `BLOCKLIST` lists words never offered as answers, and `EXCLUDE` lists senders left out.
 
 ## chat.json
 
@@ -54,7 +55,7 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
   - `type`: `text`, `photo`, `video`, `audio`, `share`, `system`, `empty` (content missing from the export), `attachment_unavailable`
   - `likes`: like emojis, as defined above
   - `reactions`: every other emoji, plus sticker reactions (`sticker` path)
-  - `system.kind`: `group_rename`, `nickname`, `theme`, `member_added` / `member_removed` / `member_left`, `poll_created` / `poll_vote`, `call_started` / `call_missed` / `call_ended`, `like_notification` ("X liked a message"), `reaction_notification` ("X reacted 🦭 to your message", with `is_like`), `pin`, `shared_album`, `collection`, `group_photo`
+  - `system.kind`: `group_rename`, `nickname`, `nickname_cleared`, `theme`, `member_added` / `member_removed` / `member_left`, `poll_created` / `poll_vote` / `poll_unavailable` ("This poll is no longer available"), `call_started` / `call_missed` / `call_ended`, `like_notification` ("X liked a message"), `reaction_notification` ("X reacted 🦭 to your message", with `is_like`), `pin`, `shared_album`, `collection`, `group_photo`
   - `source`: page and position in the original HTML, for checking
 - Timestamps are the export's local time, with no timezone.
 
@@ -79,8 +80,9 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
 ```
 
 - Each answer has the same shape as OpenKrillion (`answer, tier, aliases, quip`), plus `weight`: how common it is in the chat.
-- Tiers are assigned automatically. Change any `tier` by hand; `tooclever` is never assigned automatically, so set it yourself.
-- `auto_pick: true` marks the auto-chosen One in a Krillion. `review: true` marks prompts to check before they go live.
+- Tiers are assigned automatically from `weight`. Answers are sorted most common first and tiered by their running share of the total (using √weight): the first ~45% are `plankton`, up to ~80% `schooler`, up to ~95% `rare`, the rest `deepcut`, and the single rarest answer is `krillion`. The cut-offs are `TIER_CUTS` in `make_prompts.py`.
+- Change any `tier` by hand. `tooclever` is never assigned automatically, so set it yourself.
+- `auto_pick: true` marks the auto-chosen One in a Krillion (the `krillion` answer). `review: true` marks prompts to check before they go live.
 - Answer matching keeps emoji (see `normalize()` in `make_prompts.py`). The game must normalize answers the same way.
 
 ## Privacy
