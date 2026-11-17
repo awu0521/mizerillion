@@ -2,7 +2,7 @@
 
 ```
 pip install lxml matplotlib
-python html_to_json.py path/to/inbox/roysnonutdesires_xxx/ -o chat.json
+python html_to_json.py path/to/inbox/groupchatname/ -o chat.json
 python eda.py chat.json -o eda_out
 python make_prompts.py chat.json eda_out/stats.json -o prompt_bank.json
 ```
