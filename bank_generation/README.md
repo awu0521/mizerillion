@@ -40,7 +40,7 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
 
 `html_to_json.py` also accepts individual files: `python tools/html_to_json.py data/message_*.html -o data/chat.json`.
 
-## Before you run it on a different chat
+## Before you run it on a groupchat
 
 - **Like emojis:** edit `LIKE_EMOJIS` at the top of `html_to_json.py`. ❤ counts as a like from anyone. Each person's own emoji counts as a like only when they use it; from anyone else it's a normal reaction. Names are display names from the export, matched case-insensitively by prefix.
 - **Excluded senders:** `EXCLUDE` in `eda.py` (default: `Instagram User`, `Meta AI`) is left out of the stats.
@@ -87,4 +87,4 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
 
 ## Privacy
 
-Everything in `data/` is real chat content. It is git-ignored; keep it that way, and don't commit `chat.json`, `eda_out/` or `prompt_bank.json` from anywhere else either.
+Everything in `data/` is real chat content. It is git-ignored; when using this please keep it that way, and don't commit `chat.json`, `eda_out/` or `prompt_bank.json` from anywhere else either.
