@@ -13,6 +13,8 @@ export const FIXTURE_BANK = JSON.parse(readFileSync(new URL('../../fixtures/samp
 export const MEMBERS = JSON.parse(readFileSync(new URL('../../fixtures/sample_members.json', import.meta.url), 'utf8'));
 export const TEST_PASSWORD = 'made-up-test-password-1';
 export const TEST_HASH = await hashPassword(TEST_PASSWORD);
+export const TEST_ADMIN_PASSWORD = 'made-up-admin-password-9';
+export const TEST_ADMIN_HASH = await hashPassword(TEST_ADMIN_PASSWORD);
 export const ORIGIN = 'https://mizerillion.test';
 export const START = Date.parse('2026-11-20T18:00:00Z'); // 10:00 in Vancouver
 
@@ -29,12 +31,14 @@ export async function makeStore(kind, bank = FIXTURE_BANK) {
 export async function harness(kind, { bank } = {}) {
   const made = await makeStore(kind, bank), clock = { t: START };
   const app = createApp({ store: made.store, now: () => clock.t });
-  const env = { PLAYER_PASSWORD_HASH: TEST_HASH, ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } };
+  const env = { PLAYER_PASSWORD_HASH: TEST_HASH, ADMIN_PASSWORD_HASH: TEST_ADMIN_HASH, ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } };
   let next = 0;
   const h = {
     ...made, clock, app, env,
     /** A browser with no session. */
     browser: opts => browser(app, env, opts),
+    /** A browser signed in as admin. */
+    async admin(opts) { const b = browser(app, env, opts), r = await b.adminLogin(); if (r.status !== 200) throw new Error('admin login failed: ' + r.text); return b; },
     /** A browser that has logged in and picked the next member's name. */
     async player({ name } = {}) {
       const b = browser(app, env);
@@ -51,7 +55,7 @@ export async function harness(kind, { bank } = {}) {
 /** A cookie-keeping browser. Every response body is kept in `seen` so tests can check what leaked. */
 export function browser(app, env, { ip = '203.0.113.7', origin = ORIGIN, base = ORIGIN } = {}) {
   const jar = new Map(), seen = [];
-  let csrf = '';
+  let csrf = '', adminCsrf = '';
   const b = {
     seen, jar,
     async raw(path, init = {}) {
@@ -76,6 +80,17 @@ export function browser(app, env, { ip = '203.0.113.7', origin = ORIGIN, base = 
       return r;
     },
     get csrf() { return csrf; },
+    get adminCsrf() { return adminCsrf; },
+    async adminLogin(password = TEST_ADMIN_PASSWORD) {
+      const r = await b.raw('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }), headers: { 'Content-Type': 'application/json', Origin: origin } });
+      if (r.status === 200) adminCsrf = (await b.raw('/api/admin/session')).body.csrf;
+      return r;
+    },
+    /** Admin API: GET without data; POST with Origin and the admin CSRF token. */
+    admin(path, data, headers = {}) {
+      if (data === undefined) return b.raw('/api/admin/' + path, { headers });
+      return b.raw('/api/admin/' + path, { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': adminCsrf, ...headers } });
+    },
   };
   return b;
 }

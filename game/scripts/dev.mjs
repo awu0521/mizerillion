@@ -43,6 +43,7 @@ if (!vars.PLAYER_PASSWORD_HASH) {
   console.error('game/.dev.vars has no PLAYER_PASSWORD_HASH, so nobody could log in. Make one:\n  node scripts/hash_password.mjs\nthen add this line to game/.dev.vars:\n  PLAYER_PASSWORD_HASH=<the printed hash>');
   process.exit(1);
 }
+if (!vars.ADMIN_PASSWORD_HASH) console.warn('Note: no ADMIN_PASSWORD_HASH in game/.dev.vars, so /admin sign-in won\'t work. Make one with node scripts/hash_password.mjs.');
 
 console.log(`\nStarting with: ${choice.label}\n`);
 const child = spawn(GAME_DIR + 'node_modules/.bin/wrangler', ['dev', '--port', '8787', '-c', choice.config], { cwd: GAME_DIR, stdio: 'inherit' });

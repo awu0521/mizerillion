@@ -37,25 +37,28 @@ class Query {
   lt(c, v) { this.filters.push(() => `${ident(c)} < ${this.p(v)}`); return this; }
   is(c, v) { if (v !== null) throw new Error('is() only supports null'); this.filters.push(() => `${ident(c)} is null`); return this; }
   in(c, list) { this.filters.push(() => `${ident(c)} = any(${this.p(list)})`); return this; }
-  order(c, { ascending = true } = {}) { this.orderBy = `${ident(c)} ${ascending ? 'asc' : 'desc'}`; return this; }
+  order(c, { ascending = true } = {}) { this.orderBy = (this.orderBy ? this.orderBy + ', ' : '') + `${ident(c)} ${ascending ? 'asc' : 'desc'}`; return this; }
+  limit(n) { this.limitN = Number(n); return this; }
   single() { this.mode = 'single'; return this; }
   maybeSingle() { this.mode = 'maybe'; return this; }
   colList(cols) { return cols === '*' ? '*' : cols.split(',').map(c => ident(c.trim())).join(','); }
   build() {
     const t = ident(this.table), where = () => this.filters.length ? ' where ' + this.filters.map(f => f()).join(' and ') : '';
-    if (this.op === 'select') return `select ${this.colList(this.cols)} from ${t}${where()}${this.orderBy ? ' order by ' + this.orderBy : ''}`;
+    if (this.op === 'select') return `select ${this.colList(this.cols)} from ${t}${where()}${this.orderBy ? ' order by ' + this.orderBy : ''}${this.limitN ? ' limit ' + this.limitN : ''}`;
+    // Like PostgREST: rows arrive as JSON and are converted with the table's own column types
+    // (json_populate_record), so jsonb, arrays, timestamps etc. behave as they do in production.
     if (this.op === 'update') {
-      const sets = Object.entries(this.values).map(([k, v]) => `${ident(k)} = ${this.p(v)}`).join(', ');
+      const keys = Object.keys(this.values).map(ident), row = this.p(JSON.stringify(this.values));
+      const sets = keys.length === 1 ? `${keys[0]} = (select ${keys[0]} from json_populate_record(null::${t}, ${row}::json))` : `(${keys.join(',')}) = (select ${keys.join(',')} from json_populate_record(null::${t}, ${row}::json))`;
       return `update ${t} set ${sets}${where()}${this.returning ? ' returning ' + this.colList(this.returning) : ''}`;
     }
-    const keys = [...new Set(this.rows.flatMap(Object.keys))];
-    const values = this.rows.map(r => '(' + keys.map(k => r[k] === undefined ? 'default' : this.p(r[k])).join(',') + ')').join(',');
-    const conflict = this.conflict ? ` on conflict (${ident(this.conflict.onConflict)}) ` + (this.conflict.ignoreDuplicates ? 'do nothing' : 'do update set ' + keys.map(k => `${ident(k)} = excluded.${ident(k)}`).join(', ')) : '';
-    return `insert into ${t} (${keys.map(ident).join(',')}) values ${values}${conflict}${this.returning ? ' returning ' + this.colList(this.returning) : ''}`;
+    const keys = [...new Set(this.rows.flatMap(r => Object.keys(r).filter(k => r[k] !== undefined)))].map(ident);
+    const conflict = this.conflict ? ` on conflict (${ident(this.conflict.onConflict)}) ` + (this.conflict.ignoreDuplicates ? 'do nothing' : 'do update set ' + keys.map(k => `${k} = excluded.${k}`).join(', ')) : '';
+    return `insert into ${t} (${keys.join(',')}) select ${keys.join(',')} from json_populate_recordset(null::${t}, ${this.p(JSON.stringify(this.rows))}::json)${conflict}${this.returning ? ' returning ' + this.colList(this.returning) : ''}`;
   }
   async run() {
     try {
-      const { rows } = await asServiceRole(this.pg, this.build(), this.params.map(v => v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : Array.isArray(v) && v.some(x => x && typeof x === 'object') ? JSON.stringify(v) : v));
+      const { rows } = await asServiceRole(this.pg, this.build(), this.params);
       if (this.mode === 'single') return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { message: `expected 1 row, got ${rows.length}`, code: 'PGRST116' } };
       if (this.mode === 'maybe') return rows.length > 1 ? { data: null, error: { message: 'more than one row', code: 'PGRST116' } } : { data: rows[0] ?? null, error: null };
       return { data: this.op === 'select' || this.returning ? rows : null, error: null };

@@ -251,3 +251,9 @@ body[data-phase="done"] .hero{visibility:hidden}
 .member-list button{font:inherit;font-size:20px;padding:12px 10px;color:var(--foam);background:#0b1526;border:2px solid #1b3050;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .member-list button:hover,.member-list button:focus-visible{border-color:var(--cyan);outline:none}
 .member-list button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold)}
+
+/* ---- Mizerillion: admin shortcut (a link only; the server checks every admin request) ---- */
+.admin-link{position:fixed;right:10px;bottom:8px;z-index:40;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);opacity:.55;text-decoration:none;padding:4px 6px}
+.admin-link:hover,.admin-link:focus-visible{opacity:1;color:var(--foam)}
+/* Never near the answer box or the round buttons: only on the start and results screens. */
+body:not([data-phase="intro"]):not([data-phase="done"]) .admin-link{display:none}

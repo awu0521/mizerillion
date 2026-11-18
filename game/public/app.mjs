@@ -303,6 +303,9 @@ document.addEventListener('change', e => { if (e.target.matches('[data-setting]'
 document.addEventListener('input', e => { if (e.target.matches('.search-answers')) { const text = e.target.value.toLowerCase(); e.target.nextElementSibling.querySelectorAll('li').forEach(li => li.hidden = !li.dataset.answer.includes(text)); } });
 $('who-dialog').addEventListener('cancel', e => e.preventDefault());
 document.querySelectorAll('dialog').forEach(d => { d.addEventListener('close', () => void resumeGame()); d.addEventListener('click', e => { if (e.target === d && d.id !== 'who-dialog') { const r = d.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close(); } }); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.repeat && phase === 'landed' && !busy && !document.querySelector('dialog[open]') && !['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(document.activeElement?.tagName)) { e.preventDefault(); void next(); }
+});
 document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'f' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && !e.ctrlKey && !e.metaKey) { if (document.fullscreenElement) document.exitFullscreen?.(); else $('game').requestFullscreen?.().catch(() => {}); } });
 function viewport() { const height = window.visualViewport?.height || innerHeight; document.documentElement.style.setProperty('--vh', height + 'px'); }
 viewport(); window.visualViewport?.addEventListener('resize', viewport); window.addEventListener('resize', viewport);

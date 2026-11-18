@@ -7,7 +7,10 @@ export class MemoryStore {
     this.prompts = new Map((bank?.prompts || []).map(p => [p.id, {
       id: p.id, text: p.text, category: p.category, answers: structuredClone(p.answers),
       needs_review: !!p.review, enabled: !p.review, // prompts marked review stay off until someone enables them
+      note: p.note ?? null, version: 0, updated_at: new Date(0).toISOString(),
+      created_by_admin: false, text_edited: false, removed_answers: [],
     }]));
+    this.audit = [];
     this.members = new Map(members.map(m => [m.id, { active: true, ...m }]));
     this.puzzles = new Map();
     this.runs = new Map();
@@ -36,6 +39,34 @@ export class MemoryStore {
     return { ...s, display_name: m?.display_name ?? null, member_active: m ? m.active : null };
   }
   async updateSession(kind, tokenHash, patch) { const s = this.sessions[kind].get(tokenHash); if (s) Object.assign(s, patch); }
+
+  // admin editor
+  async adminPrompts() { return [...this.prompts.values()].map(p => structuredClone(p)).sort((a, b) => a.id.localeCompare(b.id)); }
+  async promptFull(id) { const p = this.prompts.get(id); return p ? structuredClone(p) : null; }
+  /** Saves only if the prompt is still at `version`; returns the updated prompt, or null if it changed meanwhile. */
+  async updatePrompt(id, version, patch, at) {
+    const p = this.prompts.get(id);
+    if (!p || p.version !== version) return null;
+    Object.assign(p, structuredClone(patch), { version: version + 1, updated_at: at });
+    return structuredClone(p);
+  }
+  /** Inserts a new prompt; returns false if the id is taken. */
+  async createPrompt(row) {
+    if (this.prompts.has(row.id)) return false;
+    this.prompts.set(row.id, { answers: [], enabled: false, needs_review: false, note: null, version: 0, created_by_admin: false, text_edited: false, removed_answers: [], ...structuredClone(row) });
+    return true;
+  }
+  async rejectedGuesses(promptId, limit = 30) {
+    const groups = new Map();
+    for (const g of this.guesses.filter(g => g.prompt_id === promptId && g.matched_answer === null && g.normalized)) {
+      const x = groups.get(g.normalized) || { prompt_id: promptId, normalized: g.normalized, count: 0, example: g.raw, last_seen: g.created_at };
+      x.count++; if (g.created_at >= x.last_seen) { x.last_seen = g.created_at; x.example = g.raw; }
+      groups.set(g.normalized, x);
+    }
+    return [...groups.values()].sort((a, b) => b.count - a.count || b.last_seen.localeCompare(a.last_seen)).slice(0, limit);
+  }
+  async addAudit(row) { this.audit.push({ id: this.audit.length + 1, ...structuredClone(row) }); }
+  async recentAudit(limit = 100) { return this.audit.slice().sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, limit).map(r => structuredClone(r)); }
   // puzzles
   async getPuzzle(date) { return this.puzzles.get(date) || null; }
   /** Insert if absent; always returns the stored row (first writer wins). */

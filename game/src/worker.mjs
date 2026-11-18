@@ -6,20 +6,18 @@
 // screen and every /api/* game route returns 401.
 import { GAME } from '../public/site.mjs';
 import { TIERS, ROUND_MS, PREVIEW_MS, GRACE_MS, ROUNDS, normalize, matchAnswer, gameDate, resetAt, dayNumber } from '../public/rules.mjs';
-import { pickPrompts, seededRandom, cryptoRandom, RECENT_DAYS } from './puzzle.mjs';
+import { pickPrompts, cryptoRandom, choosePuzzleIds } from './puzzle.mjs';
 import { verifyPassword, sha256hex, randomToken, TOKEN_FORMAT, fingerprint, csrfFor, timingSafeEqual } from './auth.mjs';
-import { LIMITS, ipLockedUntil, globalLockedUntil } from './lockout.mjs';
-import { gamePage, loginPage } from './html.mjs';
+import { lockedUntil } from './lockout.mjs';
+import { json, fail, iso, clientIp, readCookie, waitText, readJson } from './http.mjs';
+import { createAdminApi } from './admin.mjs';
+import { gamePage, loginPage, adminPage } from './html.mjs';
 
 const MAX_BODY = 8000;
 export const PLAYER_SESSION_MS = 30 * 24 * 3600e3;
 const SESSION_CACHE_MS = 30e3;      // re-check a session against the database at most every 30 s per isolate
 const LAST_SEEN_EVERY_MS = 3600e3;
 const UUID = /^[a-f0-9-]{36}$/;
-const json = (data, status = 200, extra = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...extra } });
-const fail = (message, status = 400, body = {}, headers = {}) => json({ error: message, ...body }, status, headers);
-const iso = t => new Date(t).toISOString();
-const addDays = (date, n) => { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 // Security headers on every response. No inline scripts; the page's JSON config block is data, not script.
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
@@ -40,15 +38,6 @@ function playerCookie(url, token, maxAgeMs) {
   const secure = url.protocol === 'https:' ? '; Secure' : '';
   return `${playerCookieName(url)}=${token}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
 }
-function readCookie(request, name) {
-  for (const part of (request.headers.get('Cookie') || '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
-  }
-  return null;
-}
-const clientIp = request => request.headers.get('CF-Connecting-IP') || 'local';
-const waitText = ms => { const m = Math.ceil(ms / 60000); return m >= 120 ? `${Math.ceil(m / 60)} hours` : m === 1 ? '1 minute' : `${m} minutes`; };
 
 export function createApp({ store, now = () => Date.now() }) {
   const sessionCache = new Map(), fingerprints = new Map();
@@ -79,14 +68,7 @@ export function createApp({ store, now = () => Date.now() }) {
 
   async function login(request, url, env, password) {
     const t = now(), ip = clientIp(request);
-    const [ipRows, failures] = await Promise.all([
-      store.loginAttempts('player', ip, iso(t - LIMITS.ipHistory)),
-      store.recentFailures('player', iso(t - 2 * LIMITS.globalWindow)),
-    ]);
-    const until = Math.max(
-      ipLockedUntil(ipRows.map(r => ({ at: Date.parse(r.created_at), success: r.success }))),
-      globalLockedUntil(failures.map(r => Date.parse(r.created_at))),
-    );
+    const until = await lockedUntil(store, 'player', ip, t);
     if (until > t) return fail(`Too many attempts. Try again in ${waitText(until - t)}.`, 429, {}, { 'Retry-After': String(Math.ceil((until - t) / 1000)) });
     if (!env.PLAYER_PASSWORD_HASH) console.error('PLAYER_PASSWORD_HASH is not set; nobody can log in.');
     const ok = await verifyPassword(password, env.PLAYER_PASSWORD_HASH);
@@ -105,11 +87,7 @@ export function createApp({ store, now = () => Date.now() }) {
   async function dailyPuzzle(date) {
     const existing = await store.getPuzzle(date);
     if (existing) return existing;
-    const recent = await store.puzzlesBetween(addDays(date, -RECENT_DAYS), date);
-    const lastUsed = new Map();
-    for (const p of recent.sort((a, b) => a.date.localeCompare(b.date))) for (const id of p.prompt_ids) lastUsed.set(id, p.date);
-    const ids = pickPrompts(await store.enabledPrompts(), { random: seededRandom(date), lastUsed });
-    return store.createPuzzle({ date, day_number: dayNumber(date), prompt_ids: ids });
+    return store.createPuzzle({ date, day_number: dayNumber(date), prompt_ids: await choosePuzzleIds(store, date) });
   }
   async function promptsFor(run) { return store.promptsByIds(run.prompt_ids); }
 
@@ -228,10 +206,9 @@ export function createApp({ store, now = () => Date.now() }) {
     if (post) {
       // Every request that changes data must come from this site.
       if (request.headers.get('Origin') !== url.origin) return fail('Cross-origin requests are not accepted.', 403);
-      if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY) return fail('Request is too large.', 413);
-      const raw = await request.text();
-      if (raw.length > MAX_BODY) return fail('Request is too large.', 413);
-      try { data = JSON.parse(raw); } catch { data = null; }
+      const body = await readJson(request, MAX_BODY);
+      if (body.error) return body.error;
+      data = body.data ?? null;
       if (path === '/api/login') return login(request, url, env, data && typeof data === 'object' ? data.password : undefined); // malformed bodies get the same "Wrong password"
       if (!data || typeof data !== 'object' || Array.isArray(data)) return fail('Invalid request.');
     }
@@ -272,16 +249,20 @@ export function createApp({ store, now = () => Date.now() }) {
     return gameApi(request, url, session.member, data, defer);
   }
 
+  const admin = createAdminApi({ store, now });
   return {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
       try {
+        if (url.pathname.startsWith('/api/admin/')) return securityHeaders(await admin.handle(request, url, env), { 'Cache-Control': 'no-store' });
         if (url.pathname.startsWith('/api/')) {
           // In the Worker, ctx.waitUntil finishes background writes after responding; without ctx (tests) they're awaited.
           const defer = ctx?.waitUntil ? promise => { ctx.waitUntil(promise.catch(e => console.error('Background write failed:', e.message))); } : promise => promise;
           return securityHeaders(await api(request, url, env, defer), { 'Cache-Control': 'no-store' });
         }
         if (!['GET', 'HEAD'].includes(request.method)) return securityHeaders(fail('Method not allowed.', 405));
+        // The admin page is public HTML/JS; no prompt or answer data loads without an admin session.
+        if (url.pathname === '/admin') return securityHeaders(new Response(request.method === 'HEAD' ? null : adminPage(env, { signedIn: await admin.hasSession(request, url, env) }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } }));
         if (url.pathname === '/' || url.pathname === '/index.html') {
           // No session: only the password screen (game name and art; no prompts, scores or names).
           const page = await playerSession(request, url, env) ? gamePage(env) : loginPage(env);

@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDatabase } from './helpers/pg_supabase.mjs';
 
-const TABLES = ['members', 'prompts', 'puzzles', 'runs', 'answers', 'guess_log', 'player_login_attempts', 'player_sessions'];
-const VIEWS = ['daily_leaderboard', 'member_stats', 'member_streaks', 'player_session_view'];
+const TABLES = ['members', 'prompts', 'puzzles', 'runs', 'answers', 'guess_log', 'player_login_attempts', 'player_sessions', 'admin_login_attempts', 'admin_sessions', 'admin_audit'];
+const VIEWS = ['daily_leaderboard', 'member_stats', 'member_streaks', 'player_session_view', 'rejected_guesses'];
 const PROMPTS = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
 
 async function member(pg, name) { return (await pg.query('insert into members (display_name) values ($1) returning id', [name])).rows[0].id; }

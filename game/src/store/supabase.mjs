@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const RUN_COLUMNS = 'id,member_id,date,mode,prompt_ids,next_round,round_start,paused_at,completed,created_at';
 const UNIQUE_VIOLATION = '23505';
+const PROMPT_COLUMNS = 'id,text,category,answers,enabled,needs_review,note,version,updated_at,created_by_admin,text_edited,removed_answers';
 
 // PostgREST returns bigint columns as numbers; keep that explicit for the clock fields.
 const toRun = r => r && { ...r, round_start: r.round_start === null ? null : Number(r.round_start), paused_at: r.paused_at === null ? null : Number(r.paused_at) };
@@ -59,6 +60,33 @@ export class SupabaseStore {
     return check(await this.db.from(source).select('*').eq('token_hash', tokenHash).maybeSingle(), 'getSession');
   }
   async updateSession(kind, tokenHash, patch) { check(await this.db.from(this.table(kind, 'sessions')).update(patch).eq('token_hash', tokenHash), 'updateSession'); }
+
+  // admin editor
+  async adminPrompts() {
+    return check(await this.db.from('prompts').select(PROMPT_COLUMNS).order('id'), 'adminPrompts');
+  }
+  async promptFull(id) {
+    return check(await this.db.from('prompts').select(PROMPT_COLUMNS).eq('id', id).maybeSingle(), 'promptFull');
+  }
+  /** Saves only if the prompt is still at `version`; returns the updated prompt, or null if it changed meanwhile. */
+  async updatePrompt(id, version, patch, at) {
+    const rows = check(await this.db.from('prompts').update({ ...patch, version: version + 1, updated_at: at }).eq('id', id).eq('version', version).select(PROMPT_COLUMNS), 'updatePrompt');
+    return rows?.[0] || null;
+  }
+  /** Inserts a new prompt; returns false if the id is taken. */
+  async createPrompt(row) {
+    const { error } = await this.db.from('prompts').insert(row);
+    if (error?.code === UNIQUE_VIOLATION) return false;
+    check({ error }, 'createPrompt');
+    return true;
+  }
+  async rejectedGuesses(promptId, limit = 30) {
+    return check(await this.db.from('rejected_guesses').select('prompt_id,normalized,count,example,last_seen').eq('prompt_id', promptId).order('count', { ascending: false }).limit(limit), 'rejectedGuesses');
+  }
+  async addAudit(row) { check(await this.db.from('admin_audit').insert(row), 'addAudit'); }
+  async recentAudit(limit = 100) {
+    return check(await this.db.from('admin_audit').select('id,session_id,ip,action,prompt_id,answer,old_value,new_value,created_at').order('created_at', { ascending: false }).limit(limit), 'recentAudit');
+  }
 
   // puzzles
   async getPuzzle(date) {

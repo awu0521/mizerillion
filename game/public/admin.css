@@ -1,0 +1,87 @@
+/* Admin page. Uses the game's font and colours from style.css. */
+body.admin-page{overflow:auto;min-height:100vh;background:#050a14;color:var(--foam);font-family:VT323,ui-monospace,monospace;font-size:19px;margin:0}
+.admin-page button{font:inherit;cursor:pointer}
+.admin-page code{font-family:inherit;color:var(--cyan)}
+.admin-page .muted{color:var(--muted)}
+.admin-page .error{color:var(--pink)}
+.admin-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;padding:10px 20px;background:#081222;border-bottom:2px solid #1b3050}
+.admin-bar h1{font-size:22px;letter-spacing:.2em;margin:0;font-weight:400}
+.admin-home{color:var(--muted);text-decoration:none;letter-spacing:.12em}
+.admin-home:hover{color:var(--foam)}
+#session-info{margin-left:auto}
+.admin-page .quiet{background:#0b1526;color:var(--foam);border:2px solid #1b3050;padding:6px 12px}
+.admin-page .quiet:hover{border-color:var(--cyan)}
+.link-btn{background:none;border:0;padding:0;color:var(--cyan);text-decoration:underline;font:inherit;cursor:pointer;text-align:left}
+.idle-warning{position:sticky;top:52px;z-index:19;display:flex;gap:14px;align-items:center;justify-content:center;padding:10px;background:#3a2a05;color:var(--gold);border-bottom:2px solid var(--gold)}
+.admin-login{max-width:420px;margin:12vh auto;padding:0 20px}
+.admin-login form{display:flex;gap:10px}
+.admin-login input{flex:1;min-width:0;font:inherit;font-size:20px;padding:10px 12px;background:#0b1526;color:var(--foam);border:2px solid #1b3050}
+.admin-login input:focus{outline:none;border-color:var(--cyan)}
+.admin-login button{background:var(--cyan);color:#050a14;border:0;padding:10px 18px;font-size:20px}
+.admin-editor{display:grid;grid-template-columns:minmax(260px,360px) minmax(0,1fr);gap:20px;padding:16px 20px}
+.prompt-list-pane{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
+#prompt-search,#answer-filter{font:inherit;padding:8px 10px;background:#0b1526;color:var(--foam);border:2px solid #1b3050;width:100%;box-sizing:border-box}
+.prompt-list{list-style:none;margin:6px 0 0;padding:0;overflow:auto}
+.prompt-list button{display:grid;gap:3px;width:100%;text-align:left;background:#0a1424;color:var(--foam);border:1px solid #16263d;padding:8px 10px;margin-bottom:4px}
+.prompt-list button:hover,.prompt-list button[aria-current="true"]{border-color:var(--cyan)}
+.p-text{font-size:19px;line-height:1.15}
+.p-meta{font-size:15px;color:var(--muted)}
+.p-tiers{display:flex;flex-wrap:wrap;gap:4px}
+.mini-chip{font-size:14px;padding:0 5px;border:1px solid var(--chip);color:var(--chip);border-radius:3px}
+.badge{font-weight:400;font-size:13px;letter-spacing:.08em;text-transform:uppercase;padding:0 5px;border-radius:3px}
+.badge.on{color:#7ee2a8;border:1px solid #2f6d4b}.badge.off{color:#ff8b8b;border:1px solid #7a2c2c}
+.badge.review{color:var(--gold);border:1px solid #7a6420}.badge.warn{color:var(--gold)}
+.prompt-pane{min-width:0}
+.prompt-head h2{margin:0 0 4px;font-size:30px;font-weight:400;line-height:1.1}
+.enable-toggle{display:flex;gap:8px;align-items:center;margin:8px 0}
+.enable-toggle input{width:20px;height:20px}
+.warning{color:var(--gold);margin:4px 0}
+.notice{color:var(--muted);border-left:3px solid var(--cyan);padding-left:10px;margin:10px 0}
+.note{color:var(--muted)}
+.answers-tools{display:flex;gap:12px;align-items:center;margin:12px 0 8px}
+.answers-tools input{max-width:360px}
+.table-wrap{overflow:auto;border:1px solid #16263d}
+table.answers,.guess-table,.audit-table{border-collapse:collapse;width:100%}
+.answers th,.answers td,.guess-table th,.guess-table td,.audit-table th,.audit-table td{padding:6px 8px;border-bottom:1px solid #12223a;text-align:left;vertical-align:top}
+.answers th,.guess-table th,.audit-table th{position:sticky;top:0;background:#081222;font-weight:400;color:var(--muted);letter-spacing:.08em}
+.a-answer{min-width:140px}.a-weight{text-align:right;color:var(--muted)}.a-quip{color:var(--muted);font-size:16px;max-width:280px}
+.a-aliases{font-size:16px;max-width:260px}
+.alias-form{display:flex;gap:6px;flex-wrap:wrap}.alias-form input{font:inherit;flex:1;min-width:160px;padding:4px 6px;background:#0b1526;color:var(--foam);border:1px solid var(--cyan)}
+.tier-chip{white-space:nowrap;background:color-mix(in srgb,var(--chip) 16%,#0b1526);color:var(--chip);border:2px solid var(--chip);padding:3px 10px;border-radius:14px}
+.tier-chip:hover,.tier-chip:focus-visible{background:color-mix(in srgb,var(--chip) 30%,#0b1526);outline:none}
+.tier-menu{position:absolute;z-index:50;display:grid;min-width:240px;background:#081222;border:2px solid #1b3050;box-shadow:0 10px 30px #000a;padding:4px}
+.tier-menu button{display:flex;justify-content:space-between;gap:16px;background:none;border:0;color:var(--chip);padding:7px 10px;text-align:left}
+.tier-menu button:hover,.tier-menu button:focus-visible,.tier-menu button[aria-selected="true"]{background:color-mix(in srgb,var(--chip) 18%,transparent);outline:none}
+.tier-menu b{font-weight:400;color:var(--muted)}
+.guesses{margin-top:24px}
+.guesses h3,.admin-extras summary{font-weight:400;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.alias-from-guess{display:flex;gap:6px}.alias-from-guess input{font:inherit;min-width:0;flex:1;padding:4px 6px;background:#0b1526;color:var(--foam);border:1px solid #1b3050}
+.admin-extras{padding:0 20px 60px;display:grid;gap:14px}
+.admin-extras details{border:1px solid #16263d;padding:8px 14px}
+.preview-day h4{font-weight:400;margin:10px 0 4px}
+.preview-day ol{margin:0;padding-left:24px}
+.audit-table{font-size:16px}.audit-table tr.mine td:first-child{border-left:3px solid var(--cyan)}
+.toast{position:fixed;left:16px;right:16px;bottom:24px;margin:0 auto;width:fit-content;max-width:640px;z-index:60;display:flex;gap:14px;align-items:center;background:#0b2a1c;color:#bff3d4;border:2px solid #2f6d4b;padding:10px 16px;box-shadow:0 10px 30px #000a}
+.toast button{flex:none}
+.toast.error{background:#2a0b12;color:#ffc2cf;border-color:#7a2c3c}
+@media(max-width:800px){.admin-editor{grid-template-columns:1fr}.prompt-list-pane{position:static;max-height:40vh}.admin-bar{flex-wrap:wrap}}
+/* Adding and editing */
+.new-prompt-btn{margin-bottom:8px;background:var(--cyan);color:#050a14;border:0;padding:8px 12px;font-size:19px;text-align:left}
+.admin-page .primary{background:var(--cyan);color:#050a14;border:0;padding:6px 14px}
+.admin-page .danger{margin-left:auto;background:none;color:var(--pink);border:1px solid #7a2c3c;padding:5px 10px}
+.link-btn.small{font-size:16px;vertical-align:middle;margin-left:6px}
+.card-form{display:grid;gap:10px;max-width:640px}
+.card-form h2{margin:0;font-weight:400;font-size:28px}
+.card-form label,.row-form label{display:grid;gap:4px;color:var(--muted)}
+.card-form input,.row-form input,.add-answer input,.add-answer select{font:inherit;font-size:19px;padding:7px 9px;background:#0b1526;color:var(--foam);border:2px solid #1b3050;min-width:0}
+.card-form input:focus,.row-form input:focus,.add-answer input:focus,.add-answer select:focus{outline:none;border-color:var(--cyan)}
+.card-form.inline{margin-bottom:6px}
+.form-buttons{display:flex;gap:12px;align-items:center}
+.add-answer{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;margin:14px 0 4px;max-width:720px}
+.row-form{display:grid;gap:8px;padding:6px 0}
+tr.editing td{background:#0a1628}
+.badge.added{color:var(--cyan);border:1px solid #1f5a6a}
+@media(max-width:560px){.add-answer{grid-template-columns:1fr 1fr}.add-answer input{grid-column:1/-1}}
+.admin-login-brand{letter-spacing:.24em;color:var(--muted);margin:0 0 4px;font-size:16px}
+.admin-login h2{margin-top:0}
+.admin-back{color:var(--muted);text-decoration:none}.admin-back:hover{color:var(--foam)}

@@ -5,8 +5,8 @@ A private, Krillion-style daily trivia game for one group chat, built on top of
 Worker that serves `public/`, with Supabase (Postgres) for data. The browser only ever talks to the
 Worker, and only the Worker holds a Supabase key.
 
-> This README covers local play, Supabase and player access. Admin and deploying to Cloudflare are
-> added in later milestones.
+> This README covers local play, Supabase, player access and admin. Deploying to Cloudflare is added
+> in the last milestone.
 
 ## Never commit the bank
 
@@ -101,7 +101,60 @@ How access works:
 - The in-memory modes (`dev:bank`, `dev:fixture`) use five made-up names from
   `fixtures/sample_members.json` instead of Supabase.
 
-## 5. Play locally
+## 5. Admin
+
+The admin page is at `/admin` (there's a small **Admin** link in the bottom-right corner of the
+password screen and the game's start and results screens). The link is only a shortcut: every admin
+request is checked on the server.
+
+Set the admin password the same way as the player one, with a **different** password:
+
+```bash
+node scripts/hash_password.mjs
+```
+
+then add `ADMIN_PASSWORD_HASH=pbkdf2$100000$…` to `game/.dev.vars` (production: `npx wrangler secret
+put ADMIN_PASSWORD_HASH`). No password is stored anywhere in the code or repo; only the hash, as a secret.
+
+What the page does:
+
+- **Prompt list:** search by id, text or category; shows enabled / off, needs review, a ⚠ when
+  something looks off, and how many answers each tier has.
+- **Answers:** answer, aliases, weight, quip and a coloured **tier chip**. Click the chip, pick a tier,
+  and it saves straight away, with **Undo** in the "Saved" message. Warnings (no One in a Krillion,
+  more than one, no Plankton) never block a save.
+- **Tier changes apply to rounds scored from then on**, including later players the same day. Scores
+  already given never change.
+- **Re-seeding never undoes the admin page.** `seed_prompts.mjs` keeps tier and alias edits, answers
+  added there, renamed answers (it still recognises them by their bank text), deleted answers (never
+  re-added), edited quips, edited questions, and prompts created there (a bank prompt with the same id
+  is skipped and reported).
+- **Enabled** checkbox per prompt (affects puzzles not yet chosen), **edit** aliases (an alias that
+  already matches another answer is refused), and the **top wrong guesses** for the prompt with
+  "add as alias of…".
+- **New prompt** (button above the list): type the question and a category. It starts switched off,
+  and can't be switched on until it has at least one answer. Its id is made from the question and
+  never changes, even if you edit the question later.
+- **Add an answer** (above the answer table): type it, pick a tier, Add. Answers must be unique within
+  the prompt, aliases included, so a guess never matches two answers.
+- **edit** next to the question changes its text or category; **edit** on an answer row changes its
+  text, aliases and quip, or deletes it. Deleting an answer never changes scores already given.
+- **Upcoming prompts:** today's 7 (fixed once anyone has played) and tomorrow's likely 7.
+- **Audit log:** every admin sign-in attempt, sign-out and edit, with old → new values.
+
+Security:
+
+- PBKDF2 hash, constant-work checks, the same "Wrong password" for anything wrong. Lockouts like the
+  player password (5 per IP per 15 min, doubling to 24 h; 50 per hour globally), counted separately
+  in `admin_login_attempts`.
+- Cookie `__Host-admin` (HttpOnly, Secure, SameSite=Strict); only the token's SHA-256 hash is stored
+  in `admin_sessions`. Sessions end after **30 minutes idle** (the page warns 5 minutes before) or
+  **8 hours** total; **Log out** revokes it; changing `ADMIN_PASSWORD_HASH` ends every session.
+- Changes must be POST with this site's Origin and the session's `X-CSRF-Token`. Unknown fields,
+  unknown prompts or answers, invalid tiers and oversized bodies are rejected.
+- Admin and player sessions are completely separate: one never works as the other.
+
+## 6. Play locally
 
 ```bash
 npm run dev           # asks which prompts to use, then serves http://localhost:8787
@@ -145,6 +198,8 @@ delete from public.members where display_name like 'Diver %' and not active;
 | `guess_log` | every guess, including rejected ones, with the prompt it was for |
 | `player_login_attempts` | `ip, success, created_at` for every password attempt (lockouts) |
 | `player_sessions` | token hash, picked member, password fingerprint, expiry, revoked |
+| `admin_login_attempts`, `admin_sessions` | the same for the admin password (sessions also have `last_seen` for the idle limit) |
+| `admin_audit` | every admin sign-in attempt, sign-out and edit: `session_id, ip, action, prompt_id, answer, old_value, new_value` |
 
 Views: `daily_leaderboard` (score, tiers and rank per completed daily dive), `member_stats`
 (all-time dives, average, best, total) and `member_streaks` (best and current daily streak).

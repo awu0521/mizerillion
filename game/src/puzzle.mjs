@@ -53,3 +53,15 @@ export function pickPrompts(prompts, { random = cryptoRandom, lastUsed = new Map
   take(fresh, false); take(stale, false); take(excluded, false);
   return shuffle(picked, random).map(p => p.id);
 }
+
+/**
+ * The prompt ids `date`'s puzzle would get, from the puzzles stored for the 14 days before it.
+ * `extraUsed` adds days that aren't stored yet (used by the admin preview of tomorrow).
+ */
+export async function choosePuzzleIds(store, date, extraUsed = []) {
+  const from = new Date(Date.parse(date + 'T12:00:00Z') - RECENT_DAYS * 86400000).toISOString().slice(0, 10);
+  const recent = [...await store.puzzlesBetween(from, date), ...extraUsed].sort((a, b) => a.date.localeCompare(b.date));
+  const lastUsed = new Map();
+  for (const p of recent) for (const id of p.prompt_ids) lastUsed.set(id, p.date);
+  return pickPrompts(await store.enabledPrompts(), { random: seededRandom(date), lastUsed });
+}

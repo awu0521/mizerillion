@@ -33,7 +33,7 @@ catch (e) { console.error(e.message); process.exit(1); }
 const keyProblem = serviceKeyProblem(env.SUPABASE_SERVICE_ROLE_KEY);
 if (keyProblem) { console.error(keyProblem); process.exit(1); }
 const db = supabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-const { data: existing, error } = await db.from('prompts').select('id,text,category,note,answers,needs_review');
+const { data: existing, error } = await db.from('prompts').select('id,text,category,note,answers,needs_review,version,text_edited,created_by_admin,removed_answers');
 if (error) {
   console.error('Could not read prompts from Supabase: ' + error.message);
   if (/permission denied/.test(error.message)) console.error('If you are using the secret / service_role key, run supabase/migrations/20261118010000_service_role_grants.sql in the SQL Editor (it grants the game tables to that key).');
@@ -47,6 +47,7 @@ console.log(`  new: ${plan.inserts.length} (${plan.inserts.filter(r => !r.enable
 console.log(`  unchanged: ${plan.unchanged.length}`);
 console.log(`  changed: ${plan.changed.length}`);
 if (plan.onlyInDatabase.length) console.log(`  in Supabase but not in this bank (left alone): ${plan.onlyInDatabase.join(', ')}`);
+if (plan.conflicts.length) console.log(`  made on the admin page, so the bank's version is skipped: ${plan.conflicts.join(', ')}`);
 for (const c of plan.changed) console.log(`\n${c.id}\n${c.diff.join('\n')}`);
 if (plan.changed.length && !force) {
   console.log('\nSome prompts changed. Nothing was written. Re-run with --force to apply these changes.');

@@ -48,24 +48,41 @@ const cleanAnswer = a => Object.fromEntries(ANSWER_FIELDS.filter(k => a[k] !== u
 /** Returns { merged, diff } for an existing prompt. diff is [] when nothing but tiers differ. */
 export function mergePrompt(incoming, existing) {
   const diff = [];
-  if (incoming.text !== existing.text) diff.push(`  text: ${JSON.stringify(existing.text)} -> ${JSON.stringify(incoming.text)}`);
-  if (incoming.category !== existing.category) diff.push(`  category: ${existing.category} -> ${incoming.category}`);
+  // Question text / category edited on the admin page win over the bank.
+  if (!existing.text_edited) {
+    if (incoming.text !== existing.text) diff.push(`  text: ${JSON.stringify(existing.text)} -> ${JSON.stringify(incoming.text)}`);
+    if (incoming.category !== existing.category) diff.push(`  category: ${existing.category} -> ${incoming.category}`);
+  }
   if ((incoming.note ?? null) !== (existing.note ?? null)) diff.push(`  note: ${JSON.stringify(existing.note ?? null)} -> ${JSON.stringify(incoming.note ?? null)}`);
-  const dbByKey = new Map(existing.answers.map(a => [normalize(a.answer), a]));
-  const inKeys = new Set();
-  const merged = incoming.answers.map(raw => {
-    const a = cleanAnswer(raw), key = normalize(a.answer), db = dbByKey.get(key);
-    inKeys.add(key);
-    if (!db) { diff.push(`  + ${JSON.stringify(a.answer)} (${a.tier})`); return a; }
-    for (const field of ['weight', 'quip', 'auto_pick']) if (!same(a[field], db[field])) diff.push(`  ~ ${JSON.stringify(db.answer)} ${field}: ${JSON.stringify(db[field] ?? null)} -> ${JSON.stringify(a[field] ?? null)}`);
-    if (a.answer !== db.answer) diff.push(`  ~ ${JSON.stringify(db.answer)} spelled ${JSON.stringify(a.answer)}`);
-    const dbAliases = sortedAliases(db.aliases), newAliases = (a.aliases || []).filter(x => !dbAliases.includes(x));
+  const removed = new Set(existing.removed_answers || []); // deleted on the admin page: never re-added
+  // A Supabase answer is found by its text, or by the bank text it had before an admin renamed it.
+  const dbByKey = new Map();
+  for (const a of existing.answers) { dbByKey.set(normalize(a.answer), a); if (a.renamed_from) dbByKey.set(normalize(a.renamed_from), a); }
+  const matched = new Set();
+  const merged = [];
+  for (const raw of incoming.answers) {
+    const a = cleanAnswer(raw), key = normalize(a.answer);
+    if (removed.has(key)) continue;
+    const db = dbByKey.get(key);
+    if (!db) { diff.push(`  + ${JSON.stringify(a.answer)} (${a.tier})`); merged.push(a); continue; }
+    matched.add(db);
+    const fieldsToCheck = db.quip_edited ? ['weight', 'auto_pick'] : ['weight', 'quip', 'auto_pick'];
+    for (const field of fieldsToCheck) if (!same(a[field], db[field])) diff.push(`  ~ ${JSON.stringify(db.answer)} ${field}: ${JSON.stringify(db[field] ?? null)} -> ${JSON.stringify(a[field] ?? null)}`);
+    if (!db.renamed_from && a.answer !== db.answer) diff.push(`  ~ ${JSON.stringify(db.answer)} spelled ${JSON.stringify(a.answer)}`);
+    const dbAliases = sortedAliases(db.aliases), newAliases = (a.aliases || []).filter(x => !dbAliases.includes(x) && normalize(x) !== normalize(db.answer));
     if (newAliases.length) diff.push(`  ~ ${JSON.stringify(db.answer)} new aliases: ${newAliases.map(x => JSON.stringify(x)).join(', ')}`);
-    const aliases = sortedAliases([...dbAliases, ...(a.aliases || [])]);
-    // Supabase tier wins; everything else comes from the bank.
-    return { ...a, ...(aliases.length ? { aliases } : {}), tier: db.tier };
-  });
-  for (const [key, db] of dbByKey) if (!inKeys.has(key)) diff.push(`  - ${JSON.stringify(db.answer)} (${db.tier})`);
+    const aliases = sortedAliases([...dbAliases, ...newAliases]);
+    // Supabase wins for the tier, and for the answer text and quip if they were edited there.
+    const out = { ...a, ...(aliases.length ? { aliases } : {}), tier: db.tier };
+    if (db.renamed_from) { out.answer = db.answer; out.renamed_from = db.renamed_from; }
+    if (db.quip_edited) { delete out.quip; if (db.quip) out.quip = db.quip; out.quip_edited = true; }
+    merged.push(out);
+  }
+  for (const db of existing.answers) {
+    if (matched.has(db)) continue;
+    if (db.added_by_admin) merged.push(db); // added on the admin page: kept
+    else diff.push(`  - ${JSON.stringify(db.answer)} (${db.tier})`);
+  }
   return { merged, diff };
 }
 
@@ -78,16 +95,18 @@ export function mergePrompt(incoming, existing) {
  */
 export function planSeed(bank, existing, { force = false } = {}) {
   const byId = new Map(existing.map(r => [r.id, r]));
-  const plan = { inserts: [], updates: [], unchanged: [], changed: [], onlyInDatabase: [] };
+  const plan = { inserts: [], updates: [], unchanged: [], changed: [], onlyInDatabase: [], conflicts: [] };
   for (const p of bank.prompts) {
-    const base = { text: p.text, category: p.category, note: p.note ?? null, needs_review: !!p.review };
     const db = byId.get(p.id);
+    const base = { text: db?.text_edited ? db.text : p.text, category: db?.text_edited ? db.category : p.category, note: p.note ?? null, needs_review: !!p.review };
     if (!db) { plan.inserts.push({ id: p.id, ...base, answers: p.answers.map(cleanAnswer), enabled: !p.review }); continue; }
+    // A prompt made on the admin page that happens to share an id with the bank is never overwritten.
+    if (db.created_by_admin) { plan.conflicts.push(p.id); continue; }
     const { merged, diff } = mergePrompt(p, db);
     const reviewChanged = !!db.needs_review !== !!p.review;
     if (diff.length) {
       plan.changed.push({ id: p.id, diff });
-      if (force) plan.updates.push({ id: p.id, row: { ...base, answers: merged, updated_at: new Date().toISOString() } });
+      if (force) plan.updates.push({ id: p.id, row: { ...base, answers: merged, version: (db.version ?? 0) + 1, updated_at: new Date().toISOString() } });
     } else if (reviewChanged) {
       plan.updates.push({ id: p.id, row: { needs_review: !!p.review, updated_at: new Date().toISOString() } });
     } else plan.unchanged.push(p.id);

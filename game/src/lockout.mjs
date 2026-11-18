@@ -34,3 +34,15 @@ export function globalLockedUntil(failures, limits = LIMITS) {
   }
   return until;
 }
+
+/** Looks up the attempt log and returns when login is locked until for this IP (0 = not locked). */
+export async function lockedUntil(store, kind, ip, t, limits = LIMITS) {
+  const [ipRows, failures] = await Promise.all([
+    store.loginAttempts(kind, ip, new Date(t - limits.ipHistory).toISOString()),
+    store.recentFailures(kind, new Date(t - 2 * limits.globalWindow).toISOString()),
+  ]);
+  return Math.max(
+    ipLockedUntil(ipRows.map(r => ({ at: Date.parse(r.created_at), success: r.success })), limits),
+    globalLockedUntil(failures.map(r => Date.parse(r.created_at)), limits),
+  );
+}

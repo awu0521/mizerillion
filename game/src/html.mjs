@@ -35,6 +35,7 @@ export function gamePage(env = {}) {
   <dialog id="settings-dialog" class="panel"><button class="close" data-close aria-label="Close settings">×</button><h2>Settings</h2>${settings.map(([key, title, help]) => `<label class="setting"><span><strong>${title}</strong><small>${help}</small></span><input type="checkbox" data-setting="${key}"><span class="toggle" aria-hidden="true"></span></label>`).join('')}<p class="rule">YOUR LOGBOOK</p><button class="quiet" data-action="logbook">My dives →</button><p class="muted">Settings are saved on this device.</p></dialog>
   <dialog id="wardrobe-dialog" class="panel"><button class="close" data-close aria-label="Close wardrobe">×</button><h2>Dive buddy</h2><div id="buddy-list" class="buddy-list"></div><p class="muted">Earn buddies with your best daily streak.</p></dialog>
   <dialog id="logbook-dialog" class="panel"><button class="close" data-close aria-label="Close logbook">×</button><p class="eyebrow">YOUR DIVER’S LOGBOOK</p><h2>My ${esc(name)}</h2><div id="logbook-content"></div><p class="muted">Daily dives extend streaks. Practice dives don’t.</p></dialog>
+  <a href="/admin" class="admin-link" aria-label="Admin">Admin</a>
   <script id="runtime-config" type="application/json">${JSON.stringify({ local: env.LOCAL_DEVELOPMENT === 'true' }).replace(/</g, '\\u003c')}</script><script type="module" src="/app.mjs"></script></body></html>`;
 }
 
@@ -47,5 +48,28 @@ export function loginPage(env = {}) {
   <header class="hero" id="hero"><h1 aria-label="${esc(name)}"><span class="open-label">THE GROUP CHAT · KRILLION</span><span class="hero-word">${heroWord(name)}</span></h1><p class="tagline">MEMBERS ONLY</p><p class="subline">the daily dive for one group chat</p></header>
   <div class="intro login" id="intro"><form id="login-form" class="login-form" autocomplete="on" novalidate><label for="password" class="login-label">PASSWORD</label><div class="login-row"><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024" placeholder="the group password" enterkeyhint="go"><button id="login-btn" class="begin-btn" type="submit">DIVE IN ▼</button></div><p id="login-error" class="error" role="alert" hidden></p></form></div>
   <noscript><div class="noscript">${esc(name)} needs JavaScript.</div></noscript></main>
+  <a href="/admin" class="admin-link" aria-label="Admin">Admin</a>
   <script type="module" src="/login.mjs"></script></body></html>`;
+}
+
+// Admin page: public HTML and JS; prompt and answer data load only with an admin session.
+export function adminPage(env = {}, { signedIn = false } = {}) {
+  const name = GAME.name, show = on => on ? '' : ' hidden';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${esc(name)} — admin</title><link rel="icon" href="/assets/favicon.png" type="image/png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/admin.css"></head>
+<body class="admin-page" data-signed-in="${signedIn}">
+  <header class="admin-bar" id="admin-bar"${show(signedIn)}><a class="admin-home" href="/">← ${esc(name.toUpperCase())}</a><h1>Admin</h1><span id="session-info" class="muted"></span><button id="logout-btn" class="quiet" type="button"${show(signedIn)}>Log out</button></header>
+  <div id="idle-warning" class="idle-warning" role="alert" hidden><span id="idle-text"></span> <button id="stay-btn" type="button" class="quiet">Stay signed in</button></div>
+  <section id="login-view" class="admin-login"${show(!signedIn)}><p class="admin-login-brand">${esc(name.toUpperCase())}</p><h2>Admin password</h2><form id="admin-login-form" novalidate><input id="admin-password" type="password"${signedIn ? '' : ' autofocus'} autocomplete="current-password" maxlength="1024" placeholder="admin password" aria-label="Admin password"><button id="admin-login-btn" type="submit">Sign in</button></form><p id="admin-login-error" class="error" role="alert" hidden></p><p class="muted" id="admin-login-note"></p><p><a class="admin-back" href="/">← back to the game</a></p></section>
+  <main id="editor-view" class="admin-editor"${show(signedIn)}>
+    <aside class="prompt-list-pane"><button id="new-prompt-btn" class="new-prompt-btn" type="button">+ New prompt</button><input id="prompt-search" type="search" placeholder="search prompts…" aria-label="Search prompts"><p id="prompt-count" class="muted">${signedIn ? 'Loading prompts…' : ''}</p><ul id="prompt-list" class="prompt-list"></ul></aside>
+    <section id="prompt-pane" class="prompt-pane" aria-live="polite"><p class="muted">Pick a prompt on the left.</p></section>
+  </main>
+  <section id="extras" class="admin-extras"${show(signedIn)}>
+    <details open><summary>Upcoming prompts</summary><div id="preview"></div></details>
+    <details><summary>Audit log</summary><div id="audit"></div></details>
+  </section>
+  <div id="tier-menu" class="tier-menu" role="listbox" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="/admin.mjs"></script>
+</body></html>`;
 }
