@@ -31,14 +31,15 @@ export function gamePage(env = {}) {
   <section class="results" id="results" aria-label="Dive results" hidden tabindex="-1"></section>
   <noscript><div class="noscript">${esc(name)} needs JavaScript for the animated game.</div></noscript></main>
   <dialog id="menu-dialog" class="panel"><button class="close" data-close aria-label="Close menu">×</button><p class="eyebrow">${esc(name.toUpperCase())}</p><h2>Menu</h2><p class="rule">DIVE IN</p><nav class="menu-nav"><button data-action="daily">↓ Daily dive</button><button data-action="practice">∞ Practice dive</button><button data-action="logbook">⟲ My logbook</button><button data-action="settings">⚙ Settings</button><button data-action="switch">⇄ Not you? Switch</button><button data-action="logout">⏏ Log out</button></nav><p class="panel-signoff">one in a ${esc(name.toLowerCase())}.</p></dialog>
-  <dialog id="who-dialog" class="panel who-panel" aria-labelledby="who-title"><p class="eyebrow">MEMBERS ONLY</p><h2 id="who-title">Who’s diving?</h2><div id="member-list" class="member-list" role="list"></div><p class="muted" id="who-status">Your name is remembered on this device.</p>
+  <dialog id="who-dialog" class="panel who-panel" aria-labelledby="who-title"><p class="eyebrow">MEMBERS ONLY</p><h2 id="who-title">Who’s diving?</h2><div id="member-list" class="member-list" role="list"></div>
+    <div class="who-footer"><p class="muted" id="who-status">Your name is remembered on this device.</p>
     <details id="name-missing" class="name-missing"><summary>Name not here?</summary>
-      <form id="add-me-form" autocomplete="off"><p class="muted">Ask whoever runs the game to add you, or add yourself with the admin password.</p>
+      <form id="add-me-form" autocomplete="off"><p class="muted">Add yourself with the admin password, or ask whoever runs the game.</p>
         <input id="add-me-name" maxlength="40" placeholder="your name" aria-label="Your name" required>
         <input id="add-me-admin" type="password" maxlength="1024" placeholder="admin password" aria-label="Admin password" autocomplete="off" required>
         <button type="submit" class="quiet">Add me</button>
         <p id="add-me-status" class="error" role="alert" hidden></p></form></details>
-    <p class="who-back"><button type="button" class="text-button" id="who-back">← Back to the password screen</button></p></dialog>
+    <p class="who-back"><button type="button" class="text-button" id="who-back">← Back to the password screen</button></p></div></dialog>
   <dialog id="settings-dialog" class="panel"><button class="close" data-close aria-label="Close settings">×</button><h2>Settings</h2>${settings.map(([key, title, help]) => `<label class="setting"><span><strong>${title}</strong><small>${help}</small></span><input type="checkbox" data-setting="${key}"><span class="toggle" aria-hidden="true"></span></label>`).join('')}<p class="rule">YOUR LOGBOOK</p><button class="quiet" data-action="logbook">My dives →</button><p class="muted">Settings are saved on this device.</p></dialog>
   <dialog id="wardrobe-dialog" class="panel"><button class="close" data-close aria-label="Close wardrobe">×</button><h2>Dive buddy</h2><div id="buddy-list" class="buddy-list"></div><p class="muted">Earn buddies with your best daily streak.</p></dialog>
   <dialog id="logbook-dialog" class="panel"><button class="close" data-close aria-label="Close logbook">×</button><p class="eyebrow">YOUR DIVER’S LOGBOOK</p><h2>My ${esc(name)}</h2><div id="logbook-content"></div><p class="muted">Daily dives extend streaks. Practice dives don’t.</p></dialog>

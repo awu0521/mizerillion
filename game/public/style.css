@@ -263,3 +263,15 @@ body:not([data-phase="intro"]):not([data-phase="done"]) .admin-link{display:none
 .name-missing input{font:inherit;font-size:19px;padding:9px 11px;color:var(--foam);background:#0b1526;border:2px solid #1b3050;min-width:0}
 .name-missing input:focus{outline:none;border-color:var(--cyan)}
 .who-back{margin:14px 0 0}
+/* Name picker fits the screen: the names scroll inside, "Name not here?" and the way back stay visible. */
+#who-dialog[open]{display:flex;flex-direction:column;max-height:calc(var(--vh,100dvh) - 24px);overflow:hidden;padding-top:22px;padding-bottom:16px}
+#who-dialog .eyebrow,#who-dialog h2{flex:none}
+#who-dialog h2{margin:2px 0 0}
+#who-dialog .member-list{flex:1 1 auto;min-height:64px;overflow-y:auto;overscroll-behavior:contain;margin:12px 0 0;padding:2px;align-content:start}
+#who-dialog .member-list button{padding:10px 10px;font-size:19px}
+.who-footer{flex:none;border-top:1px solid #1b3050;margin-top:10px;padding-top:8px}
+.who-footer #who-status{margin:0 0 4px;font-size:16px}
+.who-footer .who-back{margin:8px 0 0}
+.who-footer .name-missing form{margin-top:6px}
+#who-dialog .member-list{grid-auto-rows:max-content}
+#who-dialog .member-list button{min-height:44px}
