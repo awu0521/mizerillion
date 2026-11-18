@@ -22,7 +22,7 @@
    0m   ·  the surface. everyone blurts the same thing up here.
 ```
 
-## 🌊 What is this?
+## What is this?
 
 A private, Krillion-style trivia game whose prompts come from **one group chat's own history**:
 the names it's had, the words it overuses, the emoji it reacts with, who's always first to reply.
@@ -88,7 +88,7 @@ Mizerillion #12 🦐
   real wrong guesses, manage names, set the launch day, and see an audit log of every change.
 - **Preview mode before launch day:** play as much as you like, and nothing is saved.
 
-## 🗺️ The repo
+## The repo
 
 ```
 .
@@ -103,7 +103,7 @@ Mizerillion #12 🦐
     └── tests/          real Postgres in WebAssembly, fake data only
 ```
 
-## 🚀 Dive in
+## Instructions on how to set up your own version:
 
 1. **Make the prompt bank** from a chat export → [`bank_generation/README.md`](bank_generation/README.md)
 2. **Set up, play locally and deploy** → [`game/README.md`](game/README.md)
@@ -116,7 +116,7 @@ npm run dev        # play at http://localhost:8787
 npm run deploy     # checks the database and the upload, then goes live
 ```
 
-## 🔒 Kept private
+## Privacy
 
 - **The chat stays on your machine.** The export and the prompt bank are git-ignored. The bank reaches
   the database only through a script you run locally, and it's never bundled into the site:
@@ -127,7 +127,7 @@ npm run deploy     # checks the database and the upload, then goes live
 - **The browser never talks to the database.** Only the Worker holds a database key, and the
   database refuses everyone else.
 
-## 🐚 Credits
+## Credits
 
 - Built on top of [**OpenKrillion**](https://github.com/VulcanEon/openkrillion.com-service) (MIT): the
   ocean, the sounds, the game feel. See [`game/THIRD_PARTY_NOTICES.md`](game/THIRD_PARTY_NOTICES.md).
