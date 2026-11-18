@@ -13,14 +13,17 @@ export async function createTestDatabase() {
     // Return values the way PostgREST does: dates and timestamps as strings, bigint as numbers.
     parsers: { 1082: v => v, 1114: v => v, 1184: v => v, 20: v => Number(v) },
   });
-  // Roles that exist on every Supabase project.
+  // Roles that exist on every Supabase project. Deliberately NO default privileges: like a Supabase
+  // project with automatic table exposure turned off, so the migrations must grant what they need.
   await pg.exec(`create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
-                 grant usage on schema public to anon, authenticated, service_role;
-                 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;`);
+                 grant usage on schema public to anon, authenticated;`);
   const dir = new URL('../../supabase/migrations/', import.meta.url);
   for (const f of readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) await pg.exec(readFileSync(new URL(f, dir), 'utf8'));
   return pg;
 }
+
+// Runs one statement as service_role, like the Supabase secret / service_role key does.
+const asServiceRole = (pg, sql, params) => pg.transaction(async tx => { await tx.exec('set local role service_role'); return tx.query(sql, params); });
 
 class Query {
   constructor(pg, table) { this.pg = pg; this.table = table; this.filters = []; this.params = []; this.op = 'select'; this.cols = '*'; this.orderBy = null; this.mode = 'many'; this.returning = null; }
@@ -52,7 +55,7 @@ class Query {
   }
   async run() {
     try {
-      const { rows } = await this.pg.query(this.build(), this.params.map(v => v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : Array.isArray(v) && v.some(x => x && typeof x === 'object') ? JSON.stringify(v) : v));
+      const { rows } = await asServiceRole(this.pg, this.build(), this.params.map(v => v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : Array.isArray(v) && v.some(x => x && typeof x === 'object') ? JSON.stringify(v) : v));
       if (this.mode === 'single') return rows.length === 1 ? { data: rows[0], error: null } : { data: null, error: { message: `expected 1 row, got ${rows.length}`, code: 'PGRST116' } };
       if (this.mode === 'maybe') return rows.length > 1 ? { data: null, error: { message: 'more than one row', code: 'PGRST116' } } : { data: rows[0] ?? null, error: null };
       return { data: this.op === 'select' || this.returning ? rows : null, error: null };
@@ -67,7 +70,7 @@ export function fakeSupabase(pg) {
     async rpc(name, args) {
       try {
         const keys = Object.keys(args);
-        const { rows } = await pg.query(`select ${ident(name)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ')}) as result`, keys.map(k => args[k]));
+        const { rows } = await asServiceRole(pg, `select ${ident(name)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ')}) as result`, keys.map(k => args[k]));
         return { data: rows[0].result, error: null };
       } catch (e) { return { data: null, error: { message: e.message, code: e.code } }; }
     },

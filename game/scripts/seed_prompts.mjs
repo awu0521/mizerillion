@@ -10,7 +10,7 @@
 // - Never writes `enabled` on an existing prompt. New prompts with review: true start disabled.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadEnv, GAME_DIR } from './lib/env.mjs';
+import { loadEnv, serviceKeyProblem, GAME_DIR } from './lib/env.mjs';
 import { validateBank, planSeed } from './lib/seed_plan.mjs';
 import { supabaseClient } from '../src/store/supabase.mjs';
 
@@ -30,9 +30,16 @@ for (const w of warnings) console.warn('warning: ' + w);
 let env;
 try { env = loadEnv(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']); }
 catch (e) { console.error(e.message); process.exit(1); }
+const keyProblem = serviceKeyProblem(env.SUPABASE_SERVICE_ROLE_KEY);
+if (keyProblem) { console.error(keyProblem); process.exit(1); }
 const db = supabaseClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 const { data: existing, error } = await db.from('prompts').select('id,text,category,note,answers,needs_review');
-if (error) { console.error('Could not read prompts from Supabase: ' + error.message); process.exit(1); }
+if (error) {
+  console.error('Could not read prompts from Supabase: ' + error.message);
+  if (/permission denied/.test(error.message)) console.error('If you are using the secret / service_role key, run supabase/migrations/20261118010000_service_role_grants.sql in the SQL Editor (it grants the game tables to that key).');
+  if (/does not exist/.test(error.message)) console.error('Run the SQL files in supabase/migrations/ in the SQL Editor first, in filename order.');
+  process.exit(1);
+}
 
 const plan = planSeed(bank, existing, { force });
 console.log(`Bank: ${bank.prompts.length} prompts from ${path}`);
