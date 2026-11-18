@@ -11,6 +11,8 @@ import { verifyPassword, sha256hex, randomToken, TOKEN_FORMAT, fingerprint, csrf
 import { lockedUntil } from './lockout.mjs';
 import { json, fail, iso, clientIp, readCookie, waitText, readJson } from './http.mjs';
 import { createAdminApi } from './admin.mjs';
+import { createSettings } from './settings.mjs';
+import { signRun, readRun } from './preview.mjs';
 import { gamePage, loginPage, adminPage } from './html.mjs';
 
 const MAX_BODY = 8000;
@@ -39,8 +41,25 @@ function playerCookie(url, token, maxAgeMs) {
   return `${playerCookieName(url)}=${token}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
 }
 
+/**
+ * Judges one submitted answer against a round (shared by real and preview dives).
+ * Returns { raw, match } plus one of: rejected (no match, keep guessing), correction (confirm a typo),
+ * or result (the round is scored).
+ */
+export function judgeAnswer(run, prompt, data, t) {
+  const raw = typeof data.answer === 'string' ? data.answer.trim().slice(0, 256) : '';
+  const late = t > run.round_start + ROUND_MS;
+  // The grace period covers only the client's own timed submission; a late manual request
+  // can't revive an expired round (it is scored as a miss).
+  const timely = !late || (data.timeout === true && t <= run.round_start + ROUND_MS + GRACE_MS);
+  const match = raw && timely ? matchAnswer(raw, prompt.answers) : null;
+  if (!match && raw && !late && !data.timeout) return { raw, match, rejected: { rejected: true, message: `“${raw}”: no echo. try again` } };
+  if (match?.correction && data.confirm !== true && !late && !data.timeout && data.previewCorrection !== false) return { raw, match, correction: { correction: match.answer, original: raw } };
+  return { raw, match, result: { round: run.next_round, rawAnswer: raw || null, answer: match?.answer || null, tier: match?.tier || null, score: match ? TIERS[match.tier].score : 0 } };
+}
+
 export function createApp({ store, now = () => Date.now() }) {
-  const sessionCache = new Map(), fingerprints = new Map();
+  const sessionCache = new Map(), fingerprints = new Map(), settings = createSettings(store, now);
   async function passwordFingerprint(env) {
     const stored = env.PLAYER_PASSWORD_HASH || '';
     if (!fingerprints.has(stored)) fingerprints.set(stored, await fingerprint(stored));
@@ -87,17 +106,17 @@ export function createApp({ store, now = () => Date.now() }) {
   async function dailyPuzzle(date) {
     const existing = await store.getPuzzle(date);
     if (existing) return existing;
-    return store.createPuzzle({ date, day_number: dayNumber(date), prompt_ids: await choosePuzzleIds(store, date) });
+    return store.createPuzzle({ date, day_number: dayNumber(date, await settings.launchDate()), prompt_ids: await choosePuzzleIds(store, date) });
   }
   async function promptsFor(run) { return store.promptsByIds(run.prompt_ids); }
 
   // What the browser may see: prompt text only up to the current round, never answers.
   // Pass answers/prompts you already have; anything missing is fetched in parallel.
   async function state(run, have = {}) {
-    const [answers, prompts] = await Promise.all([have.answers || store.answersFor(run.id), have.prompts || promptsFor(run)]);
+    const [answers, prompts, launch] = await Promise.all([have.answers || store.answersFor(run.id), have.prompts || promptsFor(run), settings.launchDate()]);
     const visible = run.completed ? ROUNDS : run.next_round + 1;
     return {
-      date: run.date, dayNumber: dayNumber(run.date), resetsAt: resetAt(run.date),
+      date: run.date, dayNumber: run.mode === 'preview' ? 0 : dayNumber(run.date, launch), resetsAt: resetAt(run.date),
       runId: run.id, mode: run.mode, round: run.next_round, roundStart: run.round_start, pausedAt: run.paused_at || null,
       serverNow: now(), completed: !!run.completed,
       prompts: prompts.map((p, i) => i < visible ? { text: p.text } : null),
@@ -120,7 +139,7 @@ export function createApp({ store, now = () => Date.now() }) {
   // Game routes. Only reached with a valid player session and a picked name.
   async function gameApi(request, url, member, data, defer) {
     const path = url.pathname, date = gameDate(now());
-    if (request.method === 'GET' && path === '/api/today') return json({ date, dayNumber: dayNumber(date), resetsAt: resetAt(date), name: GAME.name, member: { name: member.display_name } });
+    if (request.method === 'GET' && path === '/api/today') return json({ date, dayNumber: dayNumber(date, await settings.launchDate()), resetsAt: resetAt(date), name: GAME.name, member: { name: member.display_name } });
     if (request.method === 'GET' && path === '/api/state') {
       const run = await ownRun(url.searchParams.get('run'), member);
       return run ? json(await state(run)) : fail('Dive not found on this device.', 404);
@@ -174,16 +193,10 @@ export function createApp({ store, now = () => Date.now() }) {
       if (run.completed || run.round_start === null || data.round !== run.next_round) return json({ state: await state(run, { answers }), alreadyScored: true });
       if (t < run.round_start) return fail('The answer window has not opened yet.', 409);
       const prompts = await promptsFor(run), prompt = prompts[run.next_round];
-      const raw = typeof data.answer === 'string' ? data.answer.trim().slice(0, 256) : '';
-      const late = t > run.round_start + ROUND_MS;
-      // The grace period covers only the client's own timed submission; a late manual request
-      // can't revive an expired round (it is scored as a miss).
-      const timely = !late || (data.timeout === true && t <= run.round_start + ROUND_MS + GRACE_MS);
-      const match = raw && timely ? matchAnswer(raw, prompt.answers) : null;
+      const { raw, match, rejected, correction, result } = judgeAnswer(run, prompt, data, t);
       if (raw) await defer(store.logGuess({ run_id: run.id, prompt_id: prompt.id, round: run.next_round, raw, normalized: normalize(raw), matched_answer: match?.answer || null, created_at: iso(t) }));
-      if (!match && raw && !late && !data.timeout) return json({ rejected: true, message: `“${raw}”: no echo. try again` });
-      if (match?.correction && data.confirm !== true && !late && !data.timeout && data.previewCorrection !== false) return json({ correction: match.answer, original: raw });
-      const result = { round: run.next_round, rawAnswer: raw || null, answer: match?.answer || null, tier: match?.tier || null, score: match ? TIERS[match.tier].score : 0 };
+      if (rejected) return json(rejected);
+      if (correction) return json(correction);
       const scored = await store.scoreRound(run.id, result.round, { ...result, createdAt: iso(t) }, ROUNDS);
       // Normally we know exactly what changed, so no re-read. If another request scored this round
       // first (a race), re-read so the response shows what was actually recorded.
@@ -194,6 +207,54 @@ export function createApp({ store, now = () => Date.now() }) {
       // Quip only if this request's answer is the one that was recorded.
       const quip = accepted?.answer && accepted.answer === match?.answer ? match.quip || null : null;
       return json({ result: { ...result, ...accepted, quip, promptText: prompt.text }, state: fresh });
+    }
+    return fail('Unknown endpoint.', 404);
+  }
+
+  // Preview dives (before the launch date): same game, nothing stored. The run is a signed token
+  // the browser sends back as runId; every response carries the updated token.
+  async function previewApi(request, url, session, data, launch, env) {
+    const path = url.pathname, date = gameDate(now()), sid = session.tokenHash.slice(0, 16);
+    const view = async (run, prompts) => ({ ...await state({ ...run, id: 'preview', mode: 'preview' }, { answers: run.results.map(r => ({ round: r.round, raw_answer: r.rawAnswer, answer: r.answer, tier: r.tier, score: r.score })), prompts: prompts || await store.promptsByIds(run.prompt_ids) }), runId: await signRun(run, env), launchDate: launch });
+    if (request.method === 'GET' && path === '/api/today') return json({ date, dayNumber: 0, preview: true, launchDate: launch, resetsAt: resetAt(date), name: GAME.name, member: null });
+    if (path === '/api/start' && request.method === 'POST') {
+      // Random prompts, keeping the launch-day prompts out so Dive #1 isn't spoiled.
+      const launchIds = await choosePuzzleIds(store, launch);
+      const run = { sid, date, prompt_ids: pickPrompts(await store.enabledPrompts(), { random: cryptoRandom, exclude: new Set(launchIds) }), next_round: 0, round_start: now() + PREVIEW_MS, paused_at: null, completed: false, results: [] };
+      return json(await view(run));
+    }
+    const token = request.method === 'GET' ? url.searchParams.get('run') : data.runId;
+    const run = await readRun(token, env, sid);
+    if (!run || run.date !== date) return fail('Dive not found.', 404);
+    const t = now();
+    if (request.method === 'GET' && path === '/api/state') return json(await view(run));
+    if (request.method === 'GET' && path === '/api/review') {
+      if (!run.completed) return fail('Finish your dive before opening the answer sheet.', 403);
+      const prompts = await store.promptsByIds(run.prompt_ids);
+      return json({ prompts: prompts.map(p => ({ text: p.text, answers: p.answers.map(a => ({ answer: a.answer, tier: a.tier, score: TIERS[a.tier].score, ...(a.quip ? { quip: a.quip } : {}) })).sort((a, b) => b.score - a.score || a.answer.localeCompare(b.answer)) })), board: [], population: 0, beat: 0, preview: true });
+    }
+    if (request.method !== 'POST') return fail('Unknown endpoint.', 404);
+    if (path === '/api/pause') {
+      if (data.paused === true && !run.completed && run.round_start !== null && !run.paused_at && t <= run.round_start + ROUND_MS) run.paused_at = t;
+      else if (data.paused === false && run.paused_at) { run.round_start += t - run.paused_at; run.paused_at = null; }
+      return json(await view(run));
+    }
+    if (path === '/api/next') {
+      if (run.paused_at) return fail('Close the menu to resume your dive.', 409);
+      if (!run.completed && run.round_start === null) run.round_start = t + PREVIEW_MS;
+      return json(await view(run));
+    }
+    if (path === '/api/answer') {
+      if (run.paused_at) return fail('Close the menu to resume your dive.', 409);
+      if (run.completed || run.round_start === null || data.round !== run.next_round) return json({ state: await view(run), alreadyScored: true });
+      if (t < run.round_start) return fail('The answer window has not opened yet.', 409);
+      const prompts = await store.promptsByIds(run.prompt_ids), prompt = prompts[run.next_round];
+      const { match, rejected, correction, result } = judgeAnswer(run, prompt, data, t);
+      if (rejected) return json(rejected);
+      if (correction) return json(correction);
+      run.results.push(result);
+      run.next_round += 1; run.round_start = null; run.completed = run.next_round >= ROUNDS;
+      return json({ result: { ...result, quip: match?.quip || null, promptText: prompt.text }, state: await view(run, prompts) });
     }
     return fail('Unknown endpoint.', 404);
   }
@@ -214,9 +275,10 @@ export function createApp({ store, now = () => Date.now() }) {
     }
 
     const session = await playerSession(request, url, env);
+    const launch = session ? await settings.launchDate() : null, preview = !!launch && gameDate(now()) < launch;
     if (request.method === 'GET' && path === '/api/session') {
       if (!session) return json({ authenticated: false });
-      return json({ authenticated: true, csrf: await csrfFor(session.token, 'player'), member: session.member && { id: session.member.id, name: session.member.display_name } });
+      return json({ authenticated: true, csrf: await csrfFor(session.token, 'player'), member: session.member && { id: session.member.id, name: session.member.display_name }, preview: preview ? { launchDate: launch } : null });
     }
     if (!session) return fail('Members only.', 401);
     if (post && !timingSafeEqual(request.headers.get('X-CSRF-Token') || '', await csrfFor(session.token, 'player'))) return fail('Invalid request.', 403);
@@ -233,6 +295,14 @@ export function createApp({ store, now = () => Date.now() }) {
     if (request.method === 'GET' && path === '/api/members') {
       return json({ members: (await store.activeMembers()).map(m => ({ id: m.id, name: m.display_name })) });
     }
+    if (post && path === '/api/add-member') {
+      // "Name not here?": the admin password adds the name, then this device picks it.
+      const r = await admin.addMemberFromPicker(request, env, data);
+      if (r.response) return r.response;
+      await store.updateSession('player', session.tokenHash, { member_id: r.member.id });
+      forgetSession(session.tokenHash);
+      return json({ member: { id: r.member.id, name: r.member.display_name } });
+    }
     if (post && path === '/api/member') {
       // Trust-based: anyone with the password may pick any active name. One daily dive per member still applies.
       let member = null;
@@ -245,11 +315,13 @@ export function createApp({ store, now = () => Date.now() }) {
       forgetSession(session.tokenHash);
       return json({ member: member && { id: member.id, name: member.display_name } });
     }
+    // Before the launch date: preview dives, no name needed, nothing stored.
+    if (preview) return previewApi(request, url, session, data, launch, env);
     if (!session.member) return fail('Pick your name first.', 409, { needMember: true });
     return gameApi(request, url, session.member, data, defer);
   }
 
-  const admin = createAdminApi({ store, now });
+  const admin = createAdminApi({ store, now, settings });
   return {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);

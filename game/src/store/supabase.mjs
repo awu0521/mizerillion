@@ -38,6 +38,25 @@ export class SupabaseStore {
   async member(id) {
     return check(await this.db.from('members').select('id,display_name,active,created_at').eq('id', id).maybeSingle(), 'member');
   }
+  async allMembers() {
+    return check(await this.db.from('members').select('id,display_name,active,created_at').order('display_name'), 'allMembers');
+  }
+  async memberByName(name) {
+    const rows = check(await this.db.from('members').select('id,display_name,active'), 'memberByName');
+    return rows.find(m => m.display_name.toLowerCase() === name.toLowerCase()) || null;
+  }
+  /** Adds a member; returns null if the name is taken (ignoring case; enforced by a unique index). */
+  async addMember(name) {
+    const { data, error } = await this.db.from('members').insert({ display_name: name, active: true }).select('id,display_name,active,created_at').single();
+    if (error?.code === UNIQUE_VIOLATION) return null;
+    return check({ data, error }, 'addMember');
+  }
+  /** Updates a member; returns the row, null if not found, or 'taken' if the new name is used. */
+  async updateMember(id, patch) {
+    const { data, error } = await this.db.from('members').update(patch).eq('id', id).select('id,display_name,active,created_at');
+    if (error?.code === UNIQUE_VIOLATION) return 'taken';
+    return check({ data, error }, 'updateMember')?.[0] || null;
+  }
   async activeMembers() {
     return check(await this.db.from('members').select('id,display_name').eq('active', true).order('display_name'), 'activeMembers');
   }
@@ -91,6 +110,13 @@ export class SupabaseStore {
   }
   async rejectedGuesses(promptId, limit = 30) {
     return check(await this.db.from('rejected_guesses').select('prompt_id,normalized,count,example,last_seen').eq('prompt_id', promptId).order('count', { ascending: false }).limit(limit), 'rejectedGuesses');
+  }
+  async getSetting(key) {
+    const row = check(await this.db.from('settings').select('value').eq('key', key).maybeSingle(), 'getSetting');
+    return row ? row.value : null;
+  }
+  async setSetting(key, value, at = new Date().toISOString()) {
+    check(await this.db.from('settings').upsert({ key, value, updated_at: at }, { onConflict: 'key' }), 'setSetting');
   }
   async addAudit(row) { check(await this.db.from('admin_audit').insert(row), 'addAudit'); }
   async recentAudit(limit = 100) {

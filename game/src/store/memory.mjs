@@ -11,6 +11,7 @@ export class MemoryStore {
       created_by_admin: false, text_edited: false, removed_answers: [],
     }]));
     this.audit = [];
+    this.settings = new Map();
     this.members = new Map(members.map(m => [m.id, { active: true, ...m }]));
     this.puzzles = new Map();
     this.runs = new Map();
@@ -24,6 +25,20 @@ export class MemoryStore {
   async promptsByIds(ids) { return ids.map(id => this.prompts.get(id)).filter(Boolean).map(p => structuredClone(p)); }
   // members
   async member(id) { return this.members.get(id) || null; }
+  async allMembers() { return [...this.members.values()].map(m => ({ id: m.id, display_name: m.display_name, active: m.active !== false, created_at: m.created_at ?? null })).sort((a, b) => a.display_name.localeCompare(b.display_name)); }
+  async memberByName(name) { const k = name.toLowerCase(); const m = [...this.members.values()].find(x => x.display_name.toLowerCase() === k); return m ? { ...m, active: m.active !== false } : null; }
+  /** Adds a member; returns null if the name is taken (ignoring case). */
+  async addMember(name, at = new Date().toISOString()) {
+    if (await this.memberByName(name)) return null;
+    const m = { id: crypto.randomUUID(), display_name: name, active: true, created_at: at };
+    this.members.set(m.id, m); return { ...m };
+  }
+  /** Updates a member; returns the row, null if not found, or 'taken' if the new name is used. */
+  async updateMember(id, patch) {
+    const m = this.members.get(id); if (!m) return null;
+    if (patch.display_name) { const other = await this.memberByName(patch.display_name); if (other && other.id !== id) return 'taken'; }
+    Object.assign(m, patch); return { ...m, active: m.active !== false };
+  }
   async activeMembers() { return [...this.members.values()].filter(m => m.active).map(({ id, display_name }) => ({ id, display_name })).sort((a, b) => a.display_name.localeCompare(b.display_name)); }
 
   // login attempts and sessions; kind is 'player' (or 'admin', milestone 4)
@@ -68,6 +83,8 @@ export class MemoryStore {
     }
     return [...groups.values()].sort((a, b) => b.count - a.count || b.last_seen.localeCompare(a.last_seen)).slice(0, limit);
   }
+  async getSetting(key) { return this.settings.has(key) ? structuredClone(this.settings.get(key)) : null; }
+  async setSetting(key, value) { this.settings.set(key, structuredClone(value)); }
   async addAudit(row) { this.audit.push({ id: this.audit.length + 1, ...structuredClone(row) }); }
   async recentAudit(limit = 100) { return this.audit.slice().sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, limit).map(r => structuredClone(r)); }
   // puzzles

@@ -24,8 +24,10 @@ const now = () => Date.now() + clockAtServer;
 
 async function api(path, data) {
   const response = await fetch('/api/' + path, { credentials: 'same-origin', cache: 'no-store', ...(data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(data) }), signal: AbortSignal.timeout(15000) });
-  if (response.status === 401) { location.reload(); await new Promise(() => {}); }
   const body = await response.json().catch(() => ({}));
+  // The session is gone: reload to the password screen. (Other 401s, like a wrong admin password in
+  // "Name not here?", are shown as errors.)
+  if (response.status === 401 && body.error === 'Members only.') { location.reload(); await new Promise(() => {}); }
   if (!response.ok) throw Object.assign(new Error(body.error || 'The signal is lost. Please retry.'), { status: response.status });
   return body;
 }
@@ -34,7 +36,7 @@ async function api(path, data) {
 function lostDive() {
   write('run', null); game = null; paused = false; autoSent = false; correction = null; visualScore = 0;
   scene.setDepth(0); setPhase('intro'); updateHud();
-  $('boot-error').textContent = 'That dive was lost because the server restarted. Start a new one.'; $('boot-error').hidden = false;
+  $('boot-error').textContent = 'That dive can’t be continued (the server restarted, or the game launched). Start a new one.'; $('boot-error').hidden = false;
 }
 function setPhase(value) {
   const card = $('prompt-card'), exiting = value === 'plunge' && !card.hidden;
@@ -175,9 +177,10 @@ function historyStats() {
   const diff = last ? (Date.parse(gameDate()) - Date.parse(last)) / 86400000 : Infinity;
   return { history, daily, played: daily.length, current: diff <= 1 ? streak : 0, bestStreak, best: Math.max(0, ...daily.map(r => r.score)), average: daily.length ? Math.round(daily.reduce((s, r) => s + r.score, 0) / daily.length) : 0 };
 }
-function storeHistory() { const history = read('history', {}), key = game.mode === 'daily' ? game.date : game.runId; history[key] = { date: game.date, dayNumber: game.dayNumber, mode: game.mode, score: currentScore, tiers: game.results.map(r => r.tier) }; write('history', history); }
+function storeHistory() { if (game.mode === 'preview') return; /* preview dives aren't kept anywhere */ const history = read('history', {}), key = game.mode === 'daily' ? game.date : game.runId; history[key] = { date: game.date, dayNumber: game.dayNumber, mode: game.mode, score: currentScore, tiers: game.results.map(r => r.tier) }; write('history', history); }
 const tierEmojis = tiers => tiers.map(t => TIERS[t]?.emoji || '⬛').join('');
 function boardHtml(data) {
+  if (game.mode === 'preview') return `<p>Preview dive · nothing is saved. The real game starts ${escape(launchText(game.launchDate))}.</p>`;
   if (game.mode !== 'daily') return '<p>Practice dive · it doesn’t count towards your stats or the daily board.</p>';
   if (!data.population) return '<p>You’re the first diver today. Check back once the others have played.</p>';
   return `<p>YOU OUT-DOVE ${data.beat} OF ${data.population} OTHER ${data.population === 1 ? 'DIVER' : 'DIVERS'} TODAY</p><ol class="board">${data.board.map((b, i) => `<li class="${b.you ? 'you-row' : ''}"><span class="board-rank">${i + 1}</span><span class="board-name">${escape(b.name)}${b.you ? ' <b class="you">YOU</b>' : ''}</span><span class="board-tiers" aria-hidden="true">${tierEmojis(b.tiers)}</span><span class="board-score">${b.score}</span></li>`).join('')}</ol>`;
@@ -186,9 +189,9 @@ async function showResults() {
   setPhase('done'); visualScore = currentScore; syncBuddyGold(); scene.setDepth(0); review = null; storeHistory();
   const band = bandFor(currentScore), stats = historyStats(), practice = game.mode === 'practice';
   document.documentElement.style.setProperty('--tier', TIERS[band.tier].color);
-  $('results').innerHTML = `<header class="result-header"><span class="result-brand">${escape(GAME.name.toUpperCase())}</span><span>${practice ? 'Practice · ' : ''}Dive #${game.dayNumber} complete</span></header>
+  $('results').innerHTML = `<header class="result-header"><span class="result-brand">${escape(GAME.name.toUpperCase())}</span><span>${game.mode === 'preview' ? 'Preview dive complete' : (practice ? 'Practice · ' : '') + 'Dive #' + game.dayNumber + ' complete'}</span></header>
   <div class="result-score"><strong>${currentScore}</strong><span>-${(currentScore * 10).toLocaleString('en-US')}m</span></div>
-  <p class="rule">${practice ? 'PRACTICE' : 'TODAY IN THE CHAT'}</p><div class="distribution board-wrap" id="distribution"><p>Sounding the rest of the chat…</p></div>
+  <p class="rule">${game.mode === 'preview' ? 'PREVIEW' : practice ? 'PRACTICE' : 'TODAY IN THE CHAT'}</p><div class="distribution board-wrap" id="distribution"><p>Sounding the rest of the chat…</p></div>
   <p class="rule">DIVE LOG · DEEPER = RARER</p>${diveChart(game.results, escape)}
   <p class="rule">THE BEARING</p><ul class="band-list">${BANDS.map(b => `<li class="${b === band ? 'current' : ''}">${tierImage(b.tier)}<span class="band-range" style="color:${TIERS[b.tier].color}">${b.min}${b.min === 450 ? '+' : '–' + b.max}</span><span>${b.name}. ${b.text}</span></li>`).join('')}</ul>
   <pre class="share-preview" id="share-preview">${escape(resultText())}</pre><div class="share-actions"><button class="quiet" id="copy-result">Copy result</button>${navigator.share ? '<button class="quiet" id="native-share">Share…</button>' : ''}</div>
@@ -200,7 +203,8 @@ async function showResults() {
   try { review = await api('review?run=' + encodeURIComponent(game.runId)); if (phase === 'done') $('distribution').innerHTML = boardHtml(review); }
   catch { $('distribution').innerHTML = '<p>Leaderboard temporarily unavailable. Your score is saved.</p>'; }
 }
-function resultText() { return shareText(game.dayNumber, game.results, game.mode === 'practice'); }
+function resultText() { return shareText(game.dayNumber, game.results, game.mode); }
+const launchText = d => d ? new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }) : 'soon';
 async function copyResult(button) {
   try { await navigator.clipboard.writeText(resultText()); button.textContent = 'Copied ✓'; setTimeout(() => button.textContent = 'Copy result', 2200); }
   catch { button.textContent = 'Select and copy above'; const range = document.createRange(); range.selectNodeContents($('share-preview')); getSelection().removeAllRanges(); getSelection().addRange(range); }
@@ -253,8 +257,10 @@ async function pickMember() {
   list.innerHTML = '<p class="muted">Loading names…</p>';
   dialog.showModal();
   const { members } = await api('members');
-  if (!members.length) { list.innerHTML = '<p class="muted">No names yet. Ask whoever runs the game to add you.</p>'; return new Promise(() => {}); }
-  list.innerHTML = members.map(m => `<button type="button" role="listitem" data-member="${escape(m.id)}">${escape(m.name)}</button>`).join('');
+  list.innerHTML = members.length
+    ? members.map(m => `<button type="button" role="listitem" data-member="${escape(m.id)}">${escape(m.name)}</button>`).join('')
+    : '<p class="muted">No names yet. Add yours below.</p>';
+  if (!members.length) $('name-missing').open = true;
   return new Promise(resolve => {
     list.onclick = async e => {
       const b = e.target.closest('[data-member]'); if (!b) return;
@@ -262,8 +268,20 @@ async function pickMember() {
       try { const { member } = await api('member', { memberId: b.dataset.member }); dialog.close(); resolve(member); }
       catch (err) { $('who-status').textContent = err.message; list.querySelectorAll('button').forEach(x => x.disabled = false); b.removeAttribute('aria-pressed'); }
     };
+    // "Name not here?": the admin password adds the name and picks it.
+    $('add-me-form').onsubmit = async e => {
+      e.preventDefault();
+      const status = $('add-me-status'), button = $('add-me-form').querySelector('button');
+      status.hidden = true; button.disabled = true;
+      try {
+        const { member } = await api('add-member', { name: $('add-me-name').value, adminPassword: $('add-me-admin').value });
+        $('add-me-admin').value = ''; dialog.close(); resolve(member);
+      } catch (err) { status.textContent = err.message; status.hidden = false; $('add-me-admin').select(); }
+      finally { button.disabled = false; }
+    };
   });
 }
+$('who-back').addEventListener('click', () => void logout());
 function tick() {
   if (game && ['preview', 'answering'].includes(phase) && !paused) {
     const remaining = game.roundStart + ROUND_MS - now();
@@ -315,11 +333,17 @@ setInterval(tick, 80);
     const session = await api('session');
     if (!session.authenticated) { location.reload(); return; }
     csrf = session.csrf;
-    const member = session.member || await pickMember();
-    scope = member.id + ':';
-    $('who-name').textContent = member.name; $('who-line').hidden = false;
+    if (session.preview) {
+      // Before launch: no names, nothing saved.
+      scope = 'preview:';
+      $('who-line').innerHTML = `<b>Preview</b> · nothing is saved until the game starts ${escape(launchText(session.preview.launchDate))}`; $('who-line').hidden = false;
+    } else {
+      const member = session.member || await pickMember();
+      scope = member.id + ':';
+      $('who-name').textContent = member.name; $('who-line').hidden = false;
+    }
     applySettings();
-    today = await api('today'); $('day-number').textContent = 'DIVE #' + today.dayNumber;
+    today = await api('today'); $('day-number').textContent = today.preview ? 'PREVIEW' : 'DIVE #' + today.dayNumber;
     const saved = read('run', null);
     if (saved?.date === today.date && saved?.runId) {
       try { setGame(await api('state?run=' + encodeURIComponent(saved.runId))); if (game.pausedAt) setGame(await api('pause', { runId: game.runId, paused: false })); await resumeView(); }

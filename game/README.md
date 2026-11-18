@@ -36,6 +36,9 @@ npm test
    3. `20261118020000_player_auth.sql`
    4. `20261118030000_admin.sql`
    5. `20261118040000_admin_editing.sql`
+   6. `20261118050000_settings.sql`
+
+   `npm run check:db` tells you which ones have been run (and `npm run deploy` won't deploy until they all have).
 3. Get the keys: **Project Settings → API Keys**. You need the **Project URL** and the **secret** key
    (`sb_secret_…`) or the legacy **service_role** key. Not the publishable/anon key: the database
    refuses it on purpose.
@@ -90,7 +93,9 @@ again whenever you regenerate the bank:
 
 ## 5. Members
 
-These are the names players pick after the password.
+These are the names players pick after the password. The easiest way to manage them is the admin
+page's **Members** tab (add, rename, hide/show). Players whose name is missing can also tap **Name not
+here?** in the picker and add it with the admin password. From the command line:
 
 ```bash
 node scripts/add_member.mjs "Annie"                  # add, or bring back a hidden name
@@ -173,7 +178,13 @@ name (and so its `workers.dev` address) is `name` in `wrangler.jsonc`.
 
 The admin page is at `/admin`. A small **Admin** link sits in the bottom-right corner of the password
 screen and the game's start and results screens. It's only a shortcut: every admin request is checked
-on the server.
+on the server. It has three tabs: **Prompts** (the editor and upcoming prompts), **Members** and
+**Settings** (launch date, login lockouts, audit log).
+
+- **Members:** add a name, rename one, or hide/show it. Hidden names leave the picker but keep their
+  past dives and scores. In the game's name picker, **Name not here?** lets a player add their own name
+  with the admin password (same lockouts and audit as signing in to admin), and **← Back to the
+  password screen** signs out.
 
 - **Prompt list:** search by id, text or category; shows on/off, needs review, a ⚠ when something
   looks off, and how many answers each tier has.
@@ -188,7 +199,14 @@ on the server.
 - **On/off** checkbox per prompt, and the **top wrong guesses** with "add as alias of…".
 - **Changes apply to rounds scored from then on**, including later players the same day. Scores
   already given never change.
-- **Upcoming prompts:** today's 7 (fixed once anyone has played) and tomorrow's likely 7.
+- **Launch date:** the day of Dive #1. Before it, the game is in **preview**: anyone with the player
+  password can play as many dives as they like, with no name picker, no leaderboard and **nothing
+  stored** (no dives, scores, guesses or puzzles; preview dives also avoid the launch-day prompts).
+  At midnight Vancouver time on the launch date, the real game starts by itself. Changing the date
+  after launch renumbers every dive, so the page asks first. If no date is saved, `launchDate` in
+  `public/site.mjs` is used.
+- **Upcoming prompts:** today's 7 (fixed once anyone has played) and tomorrow's likely 7; before
+  launch, the launch day's and the day after's.
 - **Audit log:** every admin sign-in attempt, sign-out and edit, with old → new values.
 
 ## How access works

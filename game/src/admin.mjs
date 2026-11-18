@@ -9,6 +9,8 @@ import { verifyPassword, sha256hex, randomToken, TOKEN_FORMAT, fingerprint, csrf
 import { lockedUntil, ipLockedUntil, globalLockedUntil, LIMITS } from './lockout.mjs';
 import { choosePuzzleIds } from './puzzle.mjs';
 import { json, fail, iso, addDays, clientIp, readCookie, waitText, readJson } from './http.mjs';
+import { validDate } from './settings.mjs';
+import { cleanName } from './members.mjs';
 
 export const ADMIN_IDLE_MS = 30 * 60e3;
 export const ADMIN_MAX_MS = 8 * 3600e3;
@@ -87,7 +89,7 @@ function fields(data, allowed) {
   return extra.length ? `Unknown field: ${extra.join(', ')}` : null;
 }
 
-export function createAdminApi({ store, now = () => Date.now() }) {
+export function createAdminApi({ store, now = () => Date.now(), settings }) {
   const fingerprints = new Map();
   async function passwordFingerprint(env) {
     const stored = env.ADMIN_PASSWORD_HASH || '';
@@ -112,7 +114,12 @@ export function createAdminApi({ store, now = () => Date.now() }) {
     created_at: iso(now()),
   });
 
-  async function login(request, url, env, password) {
+  /**
+   * Every use of the admin password (signing in, or adding a name from the player picker) goes
+   * through here: lockouts, constant-work check, attempt log and audit. Returns null if the password
+   * is right, or the error response to send.
+   */
+  async function checkAdminPassword(request, env, password) {
     const t = now(), ip = clientIp(request);
     const until = await lockedUntil(store, 'admin', ip, t);
     if (until > t) {
@@ -123,6 +130,29 @@ export function createAdminApi({ store, now = () => Date.now() }) {
     const ok = await verifyPassword(password, env.ADMIN_PASSWORD_HASH);
     await store.recordLoginAttempt('admin', { ip, success: ok, created_at: iso(t) });
     if (!ok) { await audit(request, null, 'login_failed'); return fail('Wrong password', 401); }
+    return null;
+  }
+
+  /** "Name not here?" on the player picker: the admin password adds a name (or brings back a hidden one). */
+  async function addMemberFromPicker(request, env, data) {
+    const extra = data && typeof data === 'object' ? Object.keys(data).filter(k => !['name', 'adminPassword'].includes(k)) : [];
+    if (!data || typeof data !== 'object' || Array.isArray(data) || extra.length) return { response: fail('Invalid request.') };
+    const clean = cleanName(data.name);
+    if (clean.error) return { response: fail(clean.error) };
+    const denied = await checkAdminPassword(request, env, data.adminPassword);
+    if (denied) return { response: denied };
+    const existing = await store.memberByName(clean.name);
+    if (existing?.active) return { response: fail(`"${existing.display_name}" is already in the list. Pick it there.`, 409) };
+    const member = existing ? await store.updateMember(existing.id, { active: true }) : await store.addMember(clean.name, iso(now()));
+    if (!member || member === 'taken') return { response: fail('That name was just taken. Pick it from the list.', 409) };
+    await audit(request, null, existing ? 'show_member' : 'add_member', { new: { name: member.display_name, from: 'player picker' } });
+    return { member };
+  }
+
+  async function login(request, url, env, password) {
+    const t = now(), ip = clientIp(request);
+    const denied = await checkAdminPassword(request, env, password);
+    if (denied) return denied;
     const token = randomToken(), id = crypto.randomUUID();
     await store.createSession('admin', {
       token_hash: await sha256hex(token), id, password_fp: await passwordFingerprint(env),
@@ -163,14 +193,23 @@ export function createAdminApi({ store, now = () => Date.now() }) {
   }
 
   async function preview() {
-    const today = gameDate(now()), tomorrow = addDays(today, 1);
-    const stored = await store.getPuzzle(today);
-    const todayIds = stored?.prompt_ids || await choosePuzzleIds(store, today);
-    const tomorrowStored = await store.getPuzzle(tomorrow);
-    const tomorrowIds = tomorrowStored?.prompt_ids || await choosePuzzleIds(store, tomorrow, stored ? [] : [{ date: today, prompt_ids: todayIds }]);
-    const prompts = new Map((await store.promptsByIds([...new Set([...todayIds, ...tomorrowIds])])).map(p => [p.id, p]));
-    const day = (date, ids, fixed) => ({ date, dayNumber: dayNumber(date), fixed, prompts: ids.map(id => ({ id, text: prompts.get(id)?.text ?? '(missing prompt)', category: prompts.get(id)?.category ?? '' })) });
-    return { today: day(today, todayIds, !!stored), tomorrow: day(tomorrow, tomorrowIds, !!tomorrowStored) };
+    const today = gameDate(now()), launch = await settings.launchDate();
+    // Before launch there's no daily puzzle yet: show launch day (Dive #1) and the day after.
+    const first = today < launch ? launch : today, second = addDays(first, 1);
+    const stored = await store.getPuzzle(first);
+    const firstIds = stored?.prompt_ids || await choosePuzzleIds(store, first);
+    const secondStored = await store.getPuzzle(second);
+    const secondIds = secondStored?.prompt_ids || await choosePuzzleIds(store, second, stored ? [] : [{ date: first, prompt_ids: firstIds }]);
+    const prompts = new Map((await store.promptsByIds([...new Set([...firstIds, ...secondIds])])).map(p => [p.id, p]));
+    const day = (date, ids, fixed, label) => ({ date, label, dayNumber: dayNumber(date, launch), fixed, prompts: ids.map(id => ({ id, text: prompts.get(id)?.text ?? '(missing prompt)', category: prompts.get(id)?.category ?? '' })) });
+    return {
+      today: day(first, firstIds, !!stored, today < launch ? 'Launch day' : 'Today'),
+      tomorrow: day(second, secondIds, !!secondStored, today < launch ? 'The day after' : 'Tomorrow'),
+    };
+  }
+  async function settingsView() {
+    const today = gameDate(now()), launch = await settings.launchDate();
+    return { launchDate: launch, today, preview: today < launch, diveToday: today < launch ? null : dayNumber(today, launch) };
   }
 
   async function handle(request, url, env) {
@@ -197,7 +236,8 @@ export function createAdminApi({ store, now = () => Date.now() }) {
 
     if (method === 'GET') {
       if (path === 'session') return json({ authenticated: true, csrf: await csrfFor(session.token, 'admin'), expiresAt, absoluteExpiresAt: Date.parse(session.row.expires_at), idleMs: ADMIN_IDLE_MS, serverNow: t });
-      if (path === 'prompts') return json({ prompts: (await store.adminPrompts()).map(promptSummary) });
+      // The list also carries each prompt's answers and aliases as one lowercase string, for searching answers.
+      if (path === 'prompts') return json({ prompts: (await store.adminPrompts()).map(p => ({ ...promptSummary(p), answerText: p.answers.flatMap(a => [a.answer, ...(a.aliases || [])]).join('\n').toLowerCase() })) });
       if (path === 'prompt') {
         const id = url.searchParams.get('id') || '';
         if (!PROMPT_ID.test(id)) return fail('No such prompt.', 404);
@@ -208,6 +248,8 @@ export function createAdminApi({ store, now = () => Date.now() }) {
       if (path === 'audit') return json({ entries: (await store.recentAudit(150)).map(e => ({ id: e.id, action: e.action, promptId: e.prompt_id, answer: e.answer, oldValue: e.old_value, newValue: e.new_value, ip: e.ip, at: e.created_at, mine: e.session_id === session.row.id })) });
       if (path === 'preview') return json(await preview());
       if (path === 'lockouts') return json(await lockouts());
+      if (path === 'settings') return json(await settingsView());
+      if (path === 'members') return json({ members: (await store.allMembers()).map(m => ({ id: m.id, name: m.display_name, active: m.active !== false })) });
       return fail('Unknown endpoint.', 404);
     }
 
@@ -238,6 +280,46 @@ export function createAdminApi({ store, now = () => Date.now() }) {
     const promptIdOk = id => typeof id === 'string' && PROMPT_ID.test(id);
     const answerOk = a => typeof a === 'string' && a.length <= 256;
 
+    // Members: add, rename, hide/show. Hiding keeps their past dives and scores.
+    if (path === 'add-member') {
+      const bad = fields(data, ['name']); if (bad) return fail(bad);
+      const clean = cleanName(data.name); if (clean.error) return fail(clean.error);
+      const existing = await store.memberByName(clean.name);
+      if (existing?.active) return fail(`"${existing.display_name}" is already a member.`, 409);
+      const member = existing ? await store.updateMember(existing.id, { active: true }) : await store.addMember(clean.name, iso(now()));
+      if (!member || member === 'taken') return fail('That name is already taken.', 409);
+      await audit(request, session, existing ? 'show_member' : 'add_member', { new: { name: member.display_name } });
+      return json({ member: { id: member.id, name: member.display_name, active: true } });
+    }
+    if (path === 'rename-member' || path === 'member-active') {
+      const bad = fields(data, path === 'rename-member' ? ['id', 'name'] : ['id', 'active']); if (bad) return fail(bad);
+      if (typeof data.id !== 'string' || !/^[a-f0-9-]{36}$/.test(data.id)) return fail('No such member.', 404);
+      const before = (await store.allMembers()).find(m => m.id === data.id);
+      if (!before) return fail('No such member.', 404);
+      let patch, action, old, next;
+      if (path === 'rename-member') {
+        const clean = cleanName(data.name); if (clean.error) return fail(clean.error);
+        patch = { display_name: clean.name }; action = 'rename_member'; old = before.display_name; next = clean.name;
+      } else {
+        if (typeof data.active !== 'boolean') return fail('active must be true or false.');
+        patch = { active: data.active }; action = data.active ? 'show_member' : 'hide_member'; old = { name: before.display_name, active: before.active }; next = { name: before.display_name, active: data.active };
+      }
+      const member = await store.updateMember(data.id, patch);
+      if (member === 'taken') return fail(`"${patch.display_name}" is already taken.`, 409);
+      if (!member) return fail('No such member.', 404);
+      await audit(request, session, action, { old, new: next });
+      return json({ member: { id: member.id, name: member.display_name, active: member.active !== false } });
+    }
+    if (path === 'launch-date') {
+      const bad = fields(data, ['date']); if (bad) return fail(bad);
+      if (!validDate(data.date)) return fail('Pick a real date (YYYY-MM-DD).');
+      const old = await settings.launchDate();
+      if (old !== data.date) {
+        await settings.setLaunchDate(data.date);
+        await audit(request, session, 'launch_date', { old, new: data.date });
+      }
+      return json(await settingsView());
+    }
     if (path === 'unlock') {
       // Lifts login lockouts early by clearing failed attempts: one IP, or everyone (also ends a global lockout).
       const bad = fields(data, ['kind', 'ip']); if (bad) return fail(bad);
@@ -387,6 +469,6 @@ export function createAdminApi({ store, now = () => Date.now() }) {
 
   /** Whether this request has a valid admin session (used to send /admin with the right view showing). */
   const hasSession = async (request, url, env) => !!await adminSession(request, url, env);
-  return { handle, hasSession };
+  return { handle, hasSession, addMemberFromPicker };
 }
 

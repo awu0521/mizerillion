@@ -31,7 +31,14 @@ export function gamePage(env = {}) {
   <section class="results" id="results" aria-label="Dive results" hidden tabindex="-1"></section>
   <noscript><div class="noscript">${esc(name)} needs JavaScript for the animated game.</div></noscript></main>
   <dialog id="menu-dialog" class="panel"><button class="close" data-close aria-label="Close menu">×</button><p class="eyebrow">${esc(name.toUpperCase())}</p><h2>Menu</h2><p class="rule">DIVE IN</p><nav class="menu-nav"><button data-action="daily">↓ Daily dive</button><button data-action="practice">∞ Practice dive</button><button data-action="logbook">⟲ My logbook</button><button data-action="settings">⚙ Settings</button><button data-action="switch">⇄ Not you? Switch</button><button data-action="logout">⏏ Log out</button></nav><p class="panel-signoff">one in a ${esc(name.toLowerCase())}.</p></dialog>
-  <dialog id="who-dialog" class="panel who-panel" aria-labelledby="who-title"><p class="eyebrow">MEMBERS ONLY</p><h2 id="who-title">Who’s diving?</h2><div id="member-list" class="member-list" role="list"></div><p class="muted" id="who-status">Your name is remembered on this device.</p></dialog>
+  <dialog id="who-dialog" class="panel who-panel" aria-labelledby="who-title"><p class="eyebrow">MEMBERS ONLY</p><h2 id="who-title">Who’s diving?</h2><div id="member-list" class="member-list" role="list"></div><p class="muted" id="who-status">Your name is remembered on this device.</p>
+    <details id="name-missing" class="name-missing"><summary>Name not here?</summary>
+      <form id="add-me-form" autocomplete="off"><p class="muted">Ask whoever runs the game to add you, or add yourself with the admin password.</p>
+        <input id="add-me-name" maxlength="40" placeholder="your name" aria-label="Your name" required>
+        <input id="add-me-admin" type="password" maxlength="1024" placeholder="admin password" aria-label="Admin password" autocomplete="off" required>
+        <button type="submit" class="quiet">Add me</button>
+        <p id="add-me-status" class="error" role="alert" hidden></p></form></details>
+    <p class="who-back"><button type="button" class="text-button" id="who-back">← Back to the password screen</button></p></dialog>
   <dialog id="settings-dialog" class="panel"><button class="close" data-close aria-label="Close settings">×</button><h2>Settings</h2>${settings.map(([key, title, help]) => `<label class="setting"><span><strong>${title}</strong><small>${help}</small></span><input type="checkbox" data-setting="${key}"><span class="toggle" aria-hidden="true"></span></label>`).join('')}<p class="rule">YOUR LOGBOOK</p><button class="quiet" data-action="logbook">My dives →</button><p class="muted">Settings are saved on this device.</p></dialog>
   <dialog id="wardrobe-dialog" class="panel"><button class="close" data-close aria-label="Close wardrobe">×</button><h2>Dive buddy</h2><div id="buddy-list" class="buddy-list"></div><p class="muted">Earn buddies with your best daily streak.</p></dialog>
   <dialog id="logbook-dialog" class="panel"><button class="close" data-close aria-label="Close logbook">×</button><p class="eyebrow">YOUR DIVER’S LOGBOOK</p><h2>My ${esc(name)}</h2><div id="logbook-content"></div><p class="muted">Daily dives extend streaks. Practice dives don’t.</p></dialog>
@@ -60,15 +67,31 @@ export function adminPage(env = {}, { signedIn = false } = {}) {
   <header class="admin-bar" id="admin-bar"${show(signedIn)}><a class="admin-home" href="/">← ${esc(name.toUpperCase())}</a><h1>Admin</h1><span id="session-info" class="muted"></span><button id="logout-btn" class="quiet" type="button"${show(signedIn)}>Log out</button></header>
   <div id="idle-warning" class="idle-warning" role="alert" hidden><span id="idle-text"></span> <button id="stay-btn" type="button" class="quiet">Stay signed in</button></div>
   <section id="login-view" class="admin-login"${show(!signedIn)}><p class="admin-login-brand">${esc(name.toUpperCase())}</p><h2>Admin password</h2><form id="admin-login-form" novalidate><input id="admin-password" type="password"${signedIn ? '' : ' autofocus'} autocomplete="current-password" maxlength="1024" placeholder="admin password" aria-label="Admin password"><button id="admin-login-btn" type="submit">Sign in</button></form><p id="admin-login-error" class="error" role="alert" hidden></p><p class="muted" id="admin-login-note"></p><p><a class="admin-back" href="/">← back to the game</a></p></section>
-  <main id="editor-view" class="admin-editor"${show(signedIn)}>
-    <aside class="prompt-list-pane"><button id="new-prompt-btn" class="new-prompt-btn" type="button">+ New prompt</button><input id="prompt-search" type="search" placeholder="search prompts…" aria-label="Search prompts"><p id="prompt-count" class="muted">${signedIn ? 'Loading prompts…' : ''}</p><ul id="prompt-list" class="prompt-list"></ul></aside>
-    <section id="prompt-pane" class="prompt-pane" aria-live="polite"><p class="muted">Pick a prompt on the left.</p></section>
+  <nav id="admin-tabs" class="admin-tabs" role="tablist" aria-label="Admin sections"${show(signedIn)}><button type="button" role="tab" data-tab="prompts" aria-selected="true">Prompts</button><button type="button" role="tab" data-tab="members" aria-selected="false">Members</button><button type="button" role="tab" data-tab="settings" aria-selected="false">Settings</button></nav>
+  <div class="tab-panel" id="panel-prompts" data-panel="prompts" role="tabpanel"${show(signedIn)}>
+  <main id="editor-view" class="admin-editor">
+    <button id="show-list-btn" class="show-list-btn" type="button" hidden aria-controls="list-pane">☰ Prompts</button>
+    <aside class="prompt-list-pane" id="list-pane"><div class="list-head"><button id="new-prompt-btn" class="new-prompt-btn" type="button">+ New prompt</button><button id="hide-list-btn" class="quiet" type="button" aria-controls="list-pane" title="Hide the prompt list">◀ hide</button></div>
+      <input id="prompt-search" type="search" placeholder="search prompts or answers…" aria-label="Search prompts">
+      <div class="list-filters"><select id="filter-category" aria-label="Category"><option value="">All categories</option></select>
+        <div class="status-filter" role="group" aria-label="Show"><button type="button" data-status="all" aria-pressed="true">All</button><button type="button" data-status="on" aria-pressed="false">On</button><button type="button" data-status="off" aria-pressed="false">Off</button><button type="button" data-status="review" aria-pressed="false" title="Needs review">Review</button><button type="button" data-status="warn" aria-pressed="false" title="Has a warning">⚠</button></div></div>
+      <p id="prompt-count" class="muted">${signedIn ? 'Loading prompts…' : ''}</p><ul id="prompt-list" class="prompt-list"></ul></aside>
+    <section id="prompt-pane" class="prompt-pane" aria-live="polite"><p class="muted">Pick a prompt from the list.</p></section>
   </main>
-  <section id="extras" class="admin-extras"${show(signedIn)}>
-    <details open><summary>Upcoming prompts</summary><div id="preview"></div></details>
-    <details open><summary>Login lockouts</summary><div id="lockouts"></div></details>
-    <details><summary>Audit log</summary><div id="audit"></div></details>
-  </section>
+  <section class="admin-extras"><details open><summary>Upcoming prompts</summary><div id="preview"></div></details></section>
+  </div>
+  <div class="tab-panel" id="panel-members" data-panel="members" role="tabpanel" hidden>
+    <section class="admin-extras members-panel"><h2>Members</h2><p class="muted">The names players pick after the password. Hiding a name removes it from the picker but keeps their past dives and scores.</p>
+      <form id="add-member-form" class="add-member" autocomplete="off"><input id="new-member-name" maxlength="40" placeholder="Add a name…" aria-label="New member name" required><button type="submit" class="primary">Add</button></form>
+      <p id="member-count" class="muted"></p><ul id="member-admin-list" class="member-admin-list"></ul></section>
+  </div>
+  <div class="tab-panel" id="panel-settings" data-panel="settings" role="tabpanel" hidden>
+    <section class="admin-extras">
+      <details open><summary>Launch date</summary><div id="launch"></div></details>
+      <details open><summary>Login lockouts</summary><div id="lockouts"></div></details>
+      <details open><summary>Audit log</summary><div id="audit"></div></details>
+    </section>
+  </div>
   <div id="tier-menu" class="tier-menu" role="listbox" hidden></div>
   <div id="toast" class="toast" role="status" hidden></div>
   <script type="module" src="/admin.mjs"></script>

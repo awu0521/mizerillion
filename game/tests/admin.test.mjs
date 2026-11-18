@@ -294,9 +294,9 @@ for (const kind of ['memory', 'supabase']) {
 
   test(kind + ': /admin arrives already showing the right view (no flash)', async () => {
     const h = await harness(kind), out = h.browser(), page = (await out.raw('/admin')).text;
-    assert.match(page, /data-signed-in="false"/); assert.match(page, /id="login-view" class="admin-login">/); assert.match(page, /id="admin-bar" hidden>/, 'no admin bar before signing in'); assert.match(page, /id="editor-view" class="admin-editor" hidden>/);
+    assert.match(page, /data-signed-in="false"/); assert.match(page, /id="login-view" class="admin-login">/); assert.match(page, /id="admin-bar" hidden>/, 'no admin bar before signing in'); assert.match(page, /id="admin-tabs"[^>]* hidden>/); assert.match(page, /id="panel-prompts"[^>]* hidden>/);
     const a = await h.admin(), inside = (await a.raw('/admin')).text;
-    assert.match(inside, /data-signed-in="true"/); assert.match(inside, /id="login-view" class="admin-login" hidden>/); assert.match(inside, /id="editor-view" class="admin-editor">/);
+    assert.match(inside, /data-signed-in="true"/); assert.match(inside, /id="login-view" class="admin-login" hidden>/); assert.match(inside, /id="admin-tabs"[^>]*"Admin sections">/); assert.match(inside, /id="panel-prompts" data-panel="prompts" role="tabpanel">/);
     for (const p of FIXTURE_BANK.prompts) assert.ok(!inside.includes(p.text), 'still no prompt data in the HTML');
   });
 
@@ -327,5 +327,53 @@ for (const kind of ['memory', 'supabase']) {
     const player = await h.player();
     assert.equal((await player.admin('unlock', { kind: 'player' })).status, 401, 'players cannot unlock');
     assert.equal((await a.admin('audit')).body.entries.filter(e => e.action === 'unlock').length, 2);
+  });
+
+  test(kind + ': "Name not here?" on the picker adds a name with the admin password, with admin protections', async () => {
+    const h = await harness(kind), b = h.browser({ ip: '203.0.113.40' });
+    assert.equal((await b.call('/api/add-member', { name: 'Newbie', adminPassword: TEST_ADMIN_PASSWORD })).status, 401, 'needs a player session');
+    await b.login();
+    const add = (body, headers) => b.call('/api/add-member', body, headers);
+    assert.equal((await add({ name: '   ', adminPassword: TEST_ADMIN_PASSWORD })).status, 400);
+    assert.equal((await add({ name: 'Newbie', adminPassword: TEST_ADMIN_PASSWORD, extra: 1 })).status, 400);
+    assert.equal((await b.raw('/api/add-member', { method: 'POST', body: JSON.stringify({ name: 'Newbie', adminPassword: TEST_ADMIN_PASSWORD }), headers: { 'Content-Type': 'application/json', Origin: ORIGIN } })).status, 403, 'needs the CSRF token');
+    for (const pw of ['nope', '', 7]) { const r = await add({ name: 'Newbie', adminPassword: pw }); assert.equal(r.status, 401); assert.deepEqual(r.body, { error: 'Wrong password' }); }
+    assert.equal((await add({ name: 'avery', adminPassword: TEST_ADMIN_PASSWORD })).status, 409, 'already in the list (any case)');
+    const ok = await add({ name: '  New   Diver ', adminPassword: TEST_ADMIN_PASSWORD });
+    assert.equal(ok.status, 200); assert.equal(ok.body.member.name, 'New Diver');
+    assert.equal((await b.call('/api/today')).body.member.name, 'New Diver', 'the new name is picked on this device');
+    assert.ok((await b.call('/api/members')).body.members.some(m => m.name === 'New Diver'));
+    // Wrong admin passwords here count towards the admin lockout.
+    const c = h.browser({ ip: '203.0.113.41' }); await c.login();
+    for (let i = 0; i < 5; i++) await c.call('/api/add-member', { name: 'X' + i, adminPassword: 'guess-' + i });
+    assert.equal((await c.call('/api/add-member', { name: 'X', adminPassword: TEST_ADMIN_PASSWORD })).status, 429);
+    assert.equal((await c.adminLogin()).status, 429, 'the same IP is locked out of admin sign-in too');
+    const a = await h.admin({ ip: '198.51.100.70' });
+    const entries = (await a.admin('audit')).body.entries;
+    assert.ok(entries.some(e => e.action === 'add_member' && e.newValue.name === 'New Diver' && e.newValue.from === 'player picker'));
+    assert.ok(entries.filter(e => e.action === 'login_failed').length >= 8);
+  });
+
+  test(kind + ': Members tab: list, add, rename, hide and show', async () => {
+    const h = await harness(kind), a = await h.admin(), player = await h.player();
+    const list = async () => (await a.admin('members')).body.members;
+    assert.equal((await list()).length, 5);
+    const added = await a.admin('add-member', { name: 'Zed' });
+    assert.equal(added.status, 200);
+    assert.equal((await a.admin('add-member', { name: 'zed' })).status, 409);
+    assert.equal((await a.admin('add-member', { name: '' })).status, 400);
+    assert.equal((await a.admin('add-member', { name: 'x'.repeat(41) })).status, 400);
+    const id = added.body.member.id;
+    assert.equal((await a.admin('rename-member', { id, name: 'Zedd' })).body.member.name, 'Zedd');
+    assert.equal((await a.admin('rename-member', { id, name: 'bea' })).status, 409, 'taken');
+    assert.equal((await a.admin('rename-member', { id: 'nope', name: 'Q' })).status, 404);
+    assert.equal((await a.admin('member-active', { id, active: false })).body.member.active, false);
+    assert.ok(!(await player.call('/api/members')).body.members.some(m => m.id === id), 'hidden from the picker');
+    assert.equal((await a.admin('member-active', { id, active: 'no' })).status, 400);
+    assert.equal((await a.admin('member-active', { id, active: true })).body.member.active, true);
+    assert.ok((await player.call('/api/members')).body.members.some(m => m.name === 'Zedd'));
+    assert.equal((await player.admin('add-member', { name: 'Sneaky' })).status, 401, 'players cannot use it');
+    const actions = (await a.admin('audit')).body.entries.map(e => e.action);
+    for (const act of ['add_member', 'rename_member', 'hide_member', 'show_member']) assert.ok(actions.includes(act), act);
   });
 }

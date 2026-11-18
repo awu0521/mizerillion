@@ -12,8 +12,9 @@
     "seed": "node scripts/seed_prompts.mjs",
     "test": "node --test tests/*.test.mjs",
     "check:bundle": "node scripts/check_bundle.mjs",
-    "deploy": "node scripts/check_bundle.mjs && wrangler deploy -c wrangler.jsonc",
-    "secrets": "node scripts/push_secrets.mjs"
+    "deploy": "node scripts/check_db.mjs && node scripts/check_bundle.mjs && wrangler deploy -c wrangler.jsonc",
+    "secrets": "node scripts/push_secrets.mjs",
+    "check:db": "node scripts/check_db.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.14",

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDatabase } from './helpers/pg_supabase.mjs';
 
-const TABLES = ['members', 'prompts', 'puzzles', 'runs', 'answers', 'guess_log', 'player_login_attempts', 'player_sessions', 'admin_login_attempts', 'admin_sessions', 'admin_audit'];
+const TABLES = ['members', 'prompts', 'puzzles', 'runs', 'answers', 'guess_log', 'player_login_attempts', 'player_sessions', 'admin_login_attempts', 'admin_sessions', 'admin_audit', 'settings'];
 const VIEWS = ['daily_leaderboard', 'member_stats', 'member_streaks', 'player_session_view', 'rejected_guesses'];
 const PROMPTS = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
 

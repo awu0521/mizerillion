@@ -81,8 +81,11 @@ export function resetAt(date) {
   for (let h = -14; h <= 14; h++) if (gameDate(base + h * 3600000) === day) return base + h * 3600000;
   return base;
 }
-export const dayNumber = date => Math.round((Date.parse(date) - Date.parse(GAME.launchDate)) / 86400000) + 1;
-export function shareText(day, results, practice = false) {
+/** Dive number for a date: launch day is #1. launchDate defaults to site.mjs; the admin page can change it. */
+export const dayNumber = (date, launchDate = GAME.launchDate) => Math.round((Date.parse(date) - Date.parse(launchDate)) / 86400000) + 1;
+/** mode: 'daily' (default), 'practice' (or true), or 'preview' (before launch; no dive number). */
+export function shareText(day, results, mode = 'daily') {
   const score = results.reduce((s, r) => s + r.score, 0);
-  return `${GAME.name}${practice ? ' practice' : ''} #${day} 🦐\n${score}/${MAX_SCORE} · ${score * METRES_PER_POINT}m\n${results.map(r => TIERS[r.tier]?.emoji || '⬛').join('')}`;
+  const title = mode === 'preview' ? `${GAME.name} preview` : `${GAME.name}${mode === true || mode === 'practice' ? ' practice' : ''} #${day}`;
+  return `${title} 🦐\n${score}/${MAX_SCORE} · ${score * METRES_PER_POINT}m\n${results.map(r => TIERS[r.tier]?.emoji || '⬛').join('')}`;
 }

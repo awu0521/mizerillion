@@ -20,10 +20,20 @@ async function api(path, data) {
   return body;
 }
 
+// ---------- tabs: Prompts, Members, Settings (last one used is remembered on this device) ----------
+const TABS = ['prompts', 'members', 'settings'];
+const savedTab = () => { try { const t = localStorage.getItem('mz:admin-tab'); return TABS.includes(t) ? t : 'prompts'; } catch { return 'prompts'; } };
+function showTab(tab) {
+  document.querySelectorAll('#admin-tabs [data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  document.querySelectorAll('.tab-panel').forEach(p => { p.hidden = p.dataset.panel !== tab; });
+  try { localStorage.setItem('mz:admin-tab', tab); } catch { /* storage may be blocked */ }
+}
+$('admin-tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
+
 // ---------- sign in / out ----------
 function showLogin(note = '') {
   signedOut = true; csrf = '';
-  $('admin-bar').hidden = true; $('editor-view').hidden = true; $('extras').hidden = true; $('logout-btn').hidden = true; $('idle-warning').hidden = true;
+  $('admin-bar').hidden = true; $('admin-tabs').hidden = true; document.querySelectorAll('.tab-panel').forEach(p => { p.hidden = true; }); $('logout-btn').hidden = true; $('idle-warning').hidden = true;
   $('session-info').textContent = ''; $('login-view').hidden = false;
   $('admin-login-note').textContent = note; $('admin-password').value = ''; $('admin-password').focus();
 }
@@ -32,8 +42,9 @@ async function startSession() {
   if (!s.authenticated) return showLogin();
   signedOut = false; csrf = s.csrf; idleMs = s.idleMs;
   absoluteEnd = Date.now() + (s.absoluteExpiresAt - s.serverNow); // the 8-hour limit, in this browser's clock
-  $('login-view').hidden = true; $('admin-bar').hidden = false; $('editor-view').hidden = false; $('extras').hidden = false; $('logout-btn').hidden = false;
-  await Promise.all([loadPrompts(), loadPreview(), loadAudit(), loadLockouts()]);
+  $('login-view').hidden = true; $('admin-bar').hidden = false; $('admin-tabs').hidden = false; $('logout-btn').hidden = false;
+  showTab(savedTab());
+  await Promise.all([loadPrompts(), loadPreview(), loadAudit(), loadLockouts(), loadSettings(), loadMembers()]);
 }
 $('admin-login-form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -63,22 +74,58 @@ setInterval(() => {
   } else $('idle-warning').hidden = true;
 }, 1000);
 
-// ---------- prompt list ----------
-async function loadPrompts() { prompts = (await api('prompts')).prompts; renderList(); }
+// ---------- prompt list: search, filters, hide/show ----------
+const filters = { category: '', status: 'all' };
+const SETUP_HINT = 'If the game was just updated, run every file in game/supabase/migrations in Supabase (npm run check:db shows which are missing).';
+async function loadPrompts() {
+  try {
+    prompts = (await api('prompts')).prompts;
+    const cats = [...new Set(prompts.map(p => p.category))].sort();
+    if (filters.category && !cats.includes(filters.category)) filters.category = '';
+    $('filter-category').innerHTML = '<option value="">All categories</option>' + cats.map(c => `<option value="${esc(c)}"${c === filters.category ? ' selected' : ''}>${esc(c)} (${prompts.filter(p => p.category === c).length})</option>`).join('');
+    renderList();
+  } catch (e) {
+    prompts = [];
+    $('prompt-count').textContent = '';
+    $('prompt-list').innerHTML = `<li class="error">Couldn't load prompts: ${esc(e.message)}<br><span class="muted">${esc(SETUP_HINT)}</span></li>`;
+  }
+}
 function tierCounts(counts) {
   return TIER_KEYS.filter(k => counts[k]).map(k => `<span class="mini-chip" style="--chip:${TIERS[k].color}" title="${esc(TIERS[k].name)}">${TIERS[k].emoji}${counts[k]}</span>`).join('');
 }
+const STATUS = { all: () => true, on: p => p.enabled, off: p => !p.enabled, review: p => p.needsReview, warn: p => p.warnings.length > 0 };
 function renderList() {
   const q = $('prompt-search').value.trim().toLowerCase();
-  const shown = prompts.filter(p => !q || p.id.includes(q) || p.text.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-  $('prompt-count').textContent = `${shown.length} of ${prompts.length} prompts`;
-  $('prompt-list').innerHTML = shown.map(p => `<li><button type="button" data-prompt="${esc(p.id)}" aria-current="${current?.id === p.id}">
+  const shown = prompts
+    .filter(p => !filters.category || p.category === filters.category)
+    .filter(STATUS[filters.status])
+    .map(p => ({ p, inPrompt: !q || p.id.includes(q) || p.text.toLowerCase().includes(q) || p.category.toLowerCase().includes(q), inAnswers: !!q && (p.answerText || '').includes(q) }))
+    .filter(x => x.inPrompt || x.inAnswers);
+  const filtered = filters.category || filters.status !== 'all' || q;
+  $('prompt-count').textContent = filtered ? `${shown.length} of ${prompts.length} prompts` : `${prompts.length} prompts`;
+  $('prompt-list').innerHTML = shown.map(({ p, inPrompt }) => `<li><button type="button" data-prompt="${esc(p.id)}" aria-current="${current?.id === p.id}">
     <span class="p-text">${esc(p.text)}</span>
-    <span class="p-meta"><code>${esc(p.id)}</code> · ${esc(p.category)} ${p.enabled ? '<b class="badge on">enabled</b>' : '<b class="badge off">off</b>'}${p.needsReview ? ' <b class="badge review">needs review</b>' : ''}${p.warnings.length ? ' <b class="badge warn" title="' + esc(p.warnings.join(' ')) + '">⚠</b>' : ''}</span>
+    <span class="p-meta"><code>${esc(p.id)}</code> · ${esc(p.category)} ${p.enabled ? '<b class="badge on">on</b>' : '<b class="badge off">off</b>'}${p.needsReview ? ' <b class="badge review">review</b>' : ''}${p.warnings.length ? ' <b class="badge warn" title="' + esc(p.warnings.join(' ')) + '">⚠</b>' : ''}${!inPrompt ? ' <span class="muted">· matches an answer</span>' : ''}</span>
     <span class="p-tiers">${tierCounts(p.counts)}</span></button></li>`).join('') || '<li class="muted">No prompts match.</li>';
 }
 $('prompt-search').addEventListener('input', renderList);
+$('filter-category').addEventListener('change', e => { filters.category = e.target.value; renderList(); });
+document.querySelector('.status-filter').addEventListener('click', e => {
+  const b = e.target.closest('[data-status]'); if (!b) return;
+  filters.status = b.dataset.status;
+  document.querySelectorAll('.status-filter [data-status]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderList();
+});
 $('prompt-list').addEventListener('click', e => { const b = e.target.closest('[data-prompt]'); if (b) void openPrompt(b.dataset.prompt); });
+// Hide/show the list like a menu; remembered on this device.
+function setListHidden(hidden, remember = true) {
+  $('editor-view').classList.toggle('list-hidden', hidden);
+  $('list-pane').hidden = hidden; $('show-list-btn').hidden = !hidden;
+  if (remember) try { localStorage.setItem('mz:admin-list-hidden', hidden ? '1' : '0'); } catch { /* storage may be blocked */ }
+}
+$('hide-list-btn').addEventListener('click', () => setListHidden(true));
+$('show-list-btn').addEventListener('click', () => { setListHidden(false); $('prompt-search').focus(); });
+try { if (localStorage.getItem('mz:admin-list-hidden') === '1') setListHidden(true, false); } catch { /* storage may be blocked */ }
 
 // ---------- new prompt ----------
 const categories = () => [...new Set(prompts.map(p => p.category))].sort();
@@ -107,9 +154,10 @@ $('prompt-pane').addEventListener('submit', async e => {
 
 // ---------- one prompt ----------
 async function openPrompt(id) {
+  showTab('prompts');
   $('prompt-pane').innerHTML = '<p class="muted">Loading…</p>';
   try { const r = await api('prompt?id=' + encodeURIComponent(id)); current = r.prompt; guesses = r.guesses; showAll = false; answerFilter = ''; renderPrompt(); renderList(); }
-  catch (e) { $('prompt-pane').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+  catch (e) { $('prompt-pane').innerHTML = `<p class="error">Couldn't open that prompt: ${esc(e.message)}</p><p class="muted">${esc(SETUP_HINT)}</p>`; }
 }
 function updateCurrent(prompt) {
   current = prompt;
@@ -164,7 +212,7 @@ $('prompt-pane').addEventListener('change', async e => {
   catch (err) { e.target.checked = !enabled; toast(err.message, true); }
 });
 $('prompt-pane').addEventListener('click', e => {
-  if (e.target.closest('[data-cancel-new]')) { $('prompt-pane').innerHTML = '<p class="muted">Pick a prompt on the left.</p>'; return; }
+  if (e.target.closest('[data-cancel-new]')) { $('prompt-pane').innerHTML = '<p class="muted">Pick a prompt from the list.</p>'; return; }
   if (e.target.id === 'show-all') { showAll = true; renderPrompt(); }
   if (e.target.id === 'edit-question') editQuestion();
   const chip = e.target.closest('[data-tier-for]'); if (chip) openTierMenu(chip, Number(chip.dataset.tierFor));
@@ -277,12 +325,12 @@ async function setTier(answer, tier, offerUndo) {
 async function loadPreview() {
   try {
     const p = await api('preview');
-    const day = d => `<div class="preview-day"><h4>${d.date === p.today.date ? 'Today' : 'Tomorrow'} · Dive #${d.dayNumber} <span class="muted">${d.fixed ? '(fixed)' : '(not chosen yet; can change if prompts are turned on or off)'}</span></h4><ol>${d.prompts.map(x => `<li><button type="button" class="link-btn" data-prompt="${esc(x.id)}">${esc(x.text)}</button> <span class="muted">${esc(x.category)}</span></li>`).join('')}</ol></div>`;
+    const day = d => `<div class="preview-day"><h4>${esc(d.label)} · ${esc(d.date)} · Dive #${d.dayNumber} <span class="muted">${d.fixed ? '(fixed)' : '(not chosen yet; can change if prompts are turned on or off)'}</span></h4><ol>${d.prompts.map(x => `<li><button type="button" class="link-btn" data-prompt="${esc(x.id)}">${esc(x.text)}</button> <span class="muted">${esc(x.category)}</span></li>`).join('')}</ol></div>`;
     $('preview').innerHTML = day(p.today) + day(p.tomorrow);
   } catch (e) { $('preview').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 $('preview').addEventListener('click', e => { const b = e.target.closest('[data-prompt]'); if (b) { void openPrompt(b.dataset.prompt); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
-const ACTIONS = { login: 'signed in', login_failed: 'wrong password', login_blocked: 'blocked (too many attempts)', logout: 'signed out', tier: 'tier', aliases: 'aliases', enabled: 'on/off', create_prompt: 'new prompt', edit_prompt: 'question edited', add_answer: 'answer added', edit_answer: 'answer edited', delete_answer: 'answer deleted', unlock: 'unlocked logins' };
+const ACTIONS = { login: 'signed in', login_failed: 'wrong password', login_blocked: 'blocked (too many attempts)', logout: 'signed out', tier: 'tier', aliases: 'aliases', enabled: 'on/off', create_prompt: 'new prompt', edit_prompt: 'question edited', add_answer: 'answer added', edit_answer: 'answer edited', delete_answer: 'answer deleted', unlock: 'unlocked logins', launch_date: 'launch date', add_member: 'name added', rename_member: 'name changed', hide_member: 'name hidden', show_member: 'name shown again' };
 const show = v => v === null || v === undefined ? '—' : typeof v === 'string' && TIERS[v] ? tierLabel(v) : Array.isArray(v) ? (v.join(', ') || '(none)')
   : typeof v === 'object' ? Object.entries(v).filter(([, x]) => x !== null && !(Array.isArray(x) && !x.length)).map(([k, x]) => `${k}: ${show(x)}`).join('; ') || '—' : String(v);
 async function loadAudit() {
@@ -293,6 +341,67 @@ async function loadAudit() {
       <td>${e.oldValue !== null || e.newValue !== null ? `${esc(show(e.oldValue))} → ${esc(show(e.newValue))}` : ''}</td><td class="muted">${esc(e.ip || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Nothing yet.</p>';
   } catch (e) { $('audit').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
+
+// ---------- launch date ----------
+const prettyDate = d => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+let launchSettings = null;
+function renderSettings(st) {
+  launchSettings = st;
+  const days = Math.round((Date.parse(st.launchDate) - Date.parse(st.today)) / 86400000);
+  $('launch').innerHTML = `
+    <p class="launch-status ${st.preview ? 'preview' : 'live'}">${st.preview
+      ? `<b>Preview</b> until ${esc(prettyDate(st.launchDate))} (${days === 1 ? 'tomorrow' : 'in ' + days + ' days'}). Players can dive as much as they like; no names, and nothing is saved.`
+      : `<b>Live</b> since ${esc(prettyDate(st.launchDate))}. Today is Dive #${st.diveToday}.`}</p>
+    <form id="launch-form" class="launch-form"><label>Dive #1 is on <input type="date" id="launch-input" required value="${esc(st.launchDate)}"></label> <button type="submit" class="primary">Save</button></form>
+    <p class="muted">Before this date, anyone with the player password gets preview dives: the full game, but no name picker, no leaderboard, and nothing stored. From midnight (Vancouver time) on this date the real game starts on its own.</p>`;
+}
+async function loadSettings() { try { renderSettings(await api('settings')); } catch (e) { $('launch').innerHTML = `<p class="error">${esc(e.message)}</p><p class="muted">${esc(SETUP_HINT)}</p>`; } }
+$('launch').addEventListener('submit', async e => {
+  if (e.target.id !== 'launch-form') return;
+  e.preventDefault();
+  const date = $('launch-input').value;
+  if (!date || date === launchSettings?.launchDate) return;
+  if (launchSettings && !launchSettings.preview && !confirm(`The game is already live and its dives are numbered from ${prettyDate(launchSettings.launchDate)}. Changing the launch date renumbers every dive. Continue?`)) return;
+  try { renderSettings(await api('launch-date', { date })); toast(`Launch date set to ${prettyDate(date)}.`); void loadPreview(); void loadAudit(); }
+  catch (err) { toast(err.message, true); }
+});
+
+// ---------- members ----------
+let members = [];
+function renderMembers() {
+  const hidden = members.filter(m => !m.active).length;
+  $('member-count').textContent = `${members.length - hidden} in the picker${hidden ? ` · ${hidden} hidden` : ''}`;
+  $('member-admin-list').innerHTML = members.map(m => `<li data-member-id="${esc(m.id)}" class="${m.active ? '' : 'is-hidden'}">
+    <span class="m-name">${esc(m.name)}</span>${m.active ? '' : ' <b class="badge off">hidden</b>'}
+    <span class="m-actions"><button type="button" class="link-btn" data-rename>rename</button><button type="button" class="link-btn" data-toggle>${m.active ? 'hide' : 'show'}</button></span></li>`).join('') || '<li class="muted">No members yet. Add the first name above.</li>';
+}
+async function loadMembers() { try { members = (await api('members')).members; renderMembers(); } catch (e) { $('member-admin-list').innerHTML = `<li class="error">${esc(e.message)}</li>`; } }
+$('add-member-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const input = $('new-member-name');
+  try { const { member } = await api('add-member', { name: input.value }); input.value = ''; await loadMembers(); toast(`Added "${member.name}".`); void loadAudit(); input.focus(); }
+  catch (err) { toast(err.message, true); }
+});
+$('member-admin-list').addEventListener('click', async e => {
+  const li = e.target.closest('[data-member-id]'); if (!li) return;
+  const m = members.find(x => x.id === li.dataset.memberId);
+  if (e.target.closest('[data-toggle]')) {
+    try { await api('member-active', { id: m.id, active: !m.active }); await loadMembers(); toast(m.active ? `Hid "${m.name}" from the picker.` : `"${m.name}" is back in the picker.`); void loadAudit(); }
+    catch (err) { toast(err.message, true); }
+  }
+  if (e.target.closest('[data-rename]')) {
+    li.innerHTML = `<form class="rename-form"><input maxlength="40" value="${esc(m.name)}" aria-label="New name for ${esc(m.name)}" required> <button type="submit" class="primary">Save</button> <button type="button" class="link-btn" data-cancel>cancel</button></form>`;
+    const form = li.querySelector('form'), input = form.querySelector('input');
+    input.focus(); input.select();
+    form.querySelector('[data-cancel]').addEventListener('click', renderMembers);
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      if (input.value.trim() === m.name) return renderMembers();
+      try { await api('rename-member', { id: m.id, name: input.value }); await loadMembers(); toast('Renamed.'); void loadAudit(); }
+      catch (err) { toast(err.message, true); }
+    });
+  }
+});
 
 // ---------- login lockouts ----------
 const minutesLeft = (until, serverNow) => { const m = Math.ceil((until - serverNow) / 60e3); return m >= 120 ? `${Math.ceil(m / 60)} hours` : m === 1 ? '1 minute' : `${m} minutes`; };

@@ -257,3 +257,9 @@ body[data-phase="done"] .hero{visibility:hidden}
 .admin-link:hover,.admin-link:focus-visible{opacity:1;color:var(--foam)}
 /* Never near the answer box or the round buttons: only on the start and results screens. */
 body:not([data-phase="intro"]):not([data-phase="done"]) .admin-link{display:none}
+.name-missing{margin:6px 0 0}
+.name-missing summary{cursor:pointer;color:var(--cyan);font-size:18px}
+.name-missing form{display:grid;gap:8px;margin-top:8px}
+.name-missing input{font:inherit;font-size:19px;padding:9px 11px;color:var(--foam);background:#0b1526;border:2px solid #1b3050;min-width:0}
+.name-missing input:focus{outline:none;border-color:var(--cyan)}
+.who-back{margin:14px 0 0}
