@@ -19,11 +19,14 @@ function securityHeaders(response, extra = {}) {
 
 // Milestone 1 identity: an anonymous per-browser id, like OpenKrillion's ok_player cookie.
 // Milestone 3 replaces this with the shared player password + pick-your-name session.
+const knownMembers = new WeakMap(); // store -> Map(id -> member), so we don't re-read the member every request
 export async function devIdentity(request, store) {
   let id = request.headers.get('Cookie')?.match(/(?:^|;\s*)mz_dev=([a-f0-9-]{36})/)?.[1], setCookie = null;
   if (!id) { id = crypto.randomUUID(); setCookie = `mz_dev=${id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`; }
-  const member = await store.ensureMember(id, 'Diver ' + id.slice(0, 4).toUpperCase());
-  return { member, setCookie };
+  if (!knownMembers.has(store)) knownMembers.set(store, new Map());
+  const cache = knownMembers.get(store);
+  if (!cache.has(id)) cache.set(id, await store.ensureMember(id, 'Diver ' + id.slice(0, 4).toUpperCase()));
+  return { member: cache.get(id), setCookie };
 }
 
 export function createApp({ store, now = () => Date.now(), identify = devIdentity }) {
@@ -36,15 +39,12 @@ export function createApp({ store, now = () => Date.now(), identify = devIdentit
     const ids = pickPrompts(await store.enabledPrompts(), { random: seededRandom(date), lastUsed });
     return store.createPuzzle({ date, day_number: dayNumber(date), prompt_ids: ids });
   }
-  async function practiceIds(date) {
-    const today = await dailyPuzzle(date); // keep today's daily prompts out of practice while possible
-    return pickPrompts(await store.enabledPrompts(), { random: cryptoRandom, exclude: new Set(today.prompt_ids) });
-  }
   async function promptsFor(run) { return store.promptsByIds(run.prompt_ids); }
 
   // What the browser may see: prompt text only up to the current round, never answers.
-  async function state(run) {
-    const answers = await store.answersFor(run.id), prompts = await promptsFor(run);
+  // Pass answers/prompts you already have; anything missing is fetched in parallel.
+  async function state(run, have = {}) {
+    const [answers, prompts] = await Promise.all([have.answers || store.answersFor(run.id), have.prompts || promptsFor(run)]);
     const visible = run.completed ? ROUNDS : run.next_round + 1;
     return {
       date: run.date, dayNumber: dayNumber(run.date), resetsAt: resetAt(run.date),
@@ -60,8 +60,15 @@ export function createApp({ store, now = () => Date.now(), identify = devIdentit
     const run = await store.getRun(id);
     return run && run.member_id === member.id ? run : null;
   }
+  /** The member's run plus its scored rounds, fetched in parallel. */
+  async function loadRun(id, member) {
+    if (!UUID.test(id || '')) return null;
+    const [run, answers] = await Promise.all([store.getRun(id), store.answersFor(id)]);
+    return run && run.member_id === member.id ? { run, answers } : null;
+  }
 
-  async function api(request, url, member) {
+  // defer(promise): background work that shouldn't hold up the response (per request).
+  async function api(request, url, member, defer) {
     const path = url.pathname, date = gameDate(now());
     if (request.method === 'GET' && path === '/api/today') return json({ date, dayNumber: dayNumber(date), resetsAt: resetAt(date), name: GAME.name, member: { name: member.display_name } });
     if (request.method === 'GET' && path === '/api/state') {
@@ -91,44 +98,50 @@ export function createApp({ store, now = () => Date.now(), identify = devIdentit
 
     if (path === '/api/start') {
       const mode = data.practice === true ? 'practice' : 'daily';
-      let run = mode === 'daily' ? await store.getDailyRun(member.id, date) : null;
-      if (!run) {
-        const promptIds = mode === 'daily' ? (await dailyPuzzle(date)).prompt_ids : await practiceIds(date);
-        run = await store.createRun({ id: crypto.randomUUID(), member_id: member.id, date, mode, prompt_ids: promptIds, round_start: now() + PREVIEW_MS, created_at: new Date(now()).toISOString() });
-      }
-      return json(await state(run));
+      const [existing, puzzle] = await Promise.all([mode === 'daily' ? store.getDailyRun(member.id, date) : null, dailyPuzzle(date)]);
+      if (existing) return json(await state(existing));
+      const promptIds = mode === 'daily' ? puzzle.prompt_ids : pickPrompts(await store.enabledPrompts(), { random: cryptoRandom, exclude: new Set(puzzle.prompt_ids) });
+      const run = await store.createRun({ id: crypto.randomUUID(), member_id: member.id, date, mode, prompt_ids: promptIds, round_start: now() + PREVIEW_MS, created_at: new Date(now()).toISOString() });
+      // createRun returns the existing run if a daily one was created concurrently, so only assume no answers for our own new id.
+      return json(await state(run, run.next_round === 0 ? { answers: [] } : {}));
     }
-    const run = await ownRun(data.runId, member);
-    if (!run) return fail('Dive not found.', 404);
+    // The clock is read before any database work, so database latency never makes an answer late.
+    const t = now();
+    const loaded = await loadRun(data.runId, member);
+    if (!loaded) return fail('Dive not found.', 404);
+    const { run, answers } = loaded;
     if (path === '/api/pause') {
-      const t = now();
       if (data.paused === true && !run.completed && run.round_start !== null && !run.paused_at && t <= run.round_start + ROUND_MS) await store.pause(run.id, t);
       else if (data.paused === false && run.paused_at) await store.resume(run.id, t);
-      return json(await state(await store.getRun(run.id)));
+      return json(await state(await store.getRun(run.id), { answers }));
     }
     if (path === '/api/next') {
       if (run.paused_at) return fail('Close the menu to resume your dive.', 409);
-      if (!run.completed && run.round_start === null) await store.startRound(run.id, now() + PREVIEW_MS);
-      return json(await state(await store.getRun(run.id)));
+      if (run.completed || run.round_start !== null) return json(await state(run, { answers }));
+      const [started, prompts] = await Promise.all([store.startRound(run.id, t + PREVIEW_MS), promptsFor(run)]);
+      return json(await state(started || await store.getRun(run.id), { answers, prompts }));
     }
     if (path === '/api/answer') {
       if (run.paused_at) return fail('Close the menu to resume your dive.', 409);
-      if (run.completed || run.round_start === null || data.round !== run.next_round) return json({ state: await state(run), alreadyScored: true });
-      const t = now();
+      if (run.completed || run.round_start === null || data.round !== run.next_round) return json({ state: await state(run, { answers }), alreadyScored: true });
       if (t < run.round_start) return fail('The answer window has not opened yet.', 409);
-      const [prompt] = await store.promptsByIds([run.prompt_ids[run.next_round]]);
+      const prompts = await promptsFor(run), prompt = prompts[run.next_round];
       const raw = typeof data.answer === 'string' ? data.answer.trim().slice(0, 256) : '';
       const late = t > run.round_start + ROUND_MS;
       // The grace period covers only the client's own timed submission; a late manual request
       // can't revive an expired round (it is scored as a miss).
       const timely = !late || (data.timeout === true && t <= run.round_start + ROUND_MS + GRACE_MS);
       const match = raw && timely ? matchAnswer(raw, prompt.answers) : null;
-      if (raw) await store.logGuess({ run_id: run.id, prompt_id: prompt.id, round: run.next_round, raw, normalized: normalize(raw), matched_answer: match?.answer || null, created_at: new Date(t).toISOString() });
+      if (raw) await defer(store.logGuess({ run_id: run.id, prompt_id: prompt.id, round: run.next_round, raw, normalized: normalize(raw), matched_answer: match?.answer || null, created_at: new Date(t).toISOString() }));
       if (!match && raw && !late && !data.timeout) return json({ rejected: true, message: `“${raw}”: no echo. try again` });
       if (match?.correction && data.confirm !== true && !late && !data.timeout && data.previewCorrection !== false) return json({ correction: match.answer, original: raw });
       const result = { round: run.next_round, rawAnswer: raw || null, answer: match?.answer || null, tier: match?.tier || null, score: match ? TIERS[match.tier].score : 0 };
-      await store.scoreRound(run.id, result.round, { ...result, createdAt: new Date(t).toISOString() }, ROUNDS);
-      const fresh = await state(await store.getRun(run.id));
+      const scored = await store.scoreRound(run.id, result.round, { ...result, createdAt: new Date(t).toISOString() }, ROUNDS);
+      // Normally we know exactly what changed, so no re-read. If another request scored this round
+      // first (a race), re-read so the response shows what was actually recorded.
+      const fresh = scored
+        ? await state({ ...run, next_round: result.round + 1, round_start: null, completed: result.round + 1 >= ROUNDS }, { answers: [...answers, { round: result.round, raw_answer: result.rawAnswer, answer: result.answer, tier: result.tier, score: result.score }], prompts })
+        : await state(await store.getRun(run.id), { prompts });
       const accepted = fresh.results.find(r => r.round === result.round);
       // Quip only if this request's answer is the one that was recorded.
       const quip = accepted?.answer && accepted.answer === match?.answer ? match.quip || null : null;
@@ -138,12 +151,14 @@ export function createApp({ store, now = () => Date.now(), identify = devIdentit
   }
 
   return {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
       const url = new URL(request.url);
       try {
         if (url.pathname.startsWith('/api/')) {
           const { member, setCookie } = await identify(request, store);
-          const response = await api(request, url, member);
+          // In the Worker, ctx.waitUntil finishes background writes after responding; without ctx (tests) they're awaited.
+          const defer = ctx?.waitUntil ? promise => { ctx.waitUntil(promise.catch(e => console.error('Background write failed:', e.message))); } : promise => promise;
+          const response = await api(request, url, member, defer);
           if (setCookie) response.headers.append('Set-Cookie', setCookie + (url.protocol === 'https:' ? '; Secure' : ''));
           return securityHeaders(response);
         }

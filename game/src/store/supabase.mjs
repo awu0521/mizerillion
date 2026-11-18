@@ -73,8 +73,10 @@ export class SupabaseStore {
     if (error?.code === UNIQUE_VIOLATION && mode === 'daily') return this.getDailyRun(member_id, date);
     return toRun(check({ data, error }, 'createRun'));
   }
+  /** Starts the next round if it isn't already; returns the updated run, or null if nothing changed. */
   async startRound(id, roundStart) {
-    check(await this.db.from('runs').update({ round_start: roundStart }).eq('id', id).is('round_start', null).eq('completed', false), 'startRound');
+    const rows = check(await this.db.from('runs').update({ round_start: roundStart }).eq('id', id).is('round_start', null).eq('completed', false).select(RUN_COLUMNS), 'startRound');
+    return toRun(rows?.[0] || null);
   }
   async pause(id, at) {
     check(await this.db.from('runs').update({ paused_at: at }).eq('id', id).is('paused_at', null), 'pause');

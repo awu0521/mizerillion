@@ -166,4 +166,21 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal(rev.body.population, 1); assert.equal(rev.body.beat, 1);
     assert.equal(rev.body.board[0].you, true); assert.equal(rev.body.board[0].score, 700);
     assert.ok(!rev.text.includes('weight'), 'weights are not sent');
-  });}
+  });  test(kind + ': two submits for the same round at once score it once, and both get the recorded result', async () => {
+    const h = await harness(kind), p = h.player();
+    const { body: game } = await p.call('/api/start', {});
+    h.clock.t += PREVIEW_MS + 500;
+    const good = await answerFor(h.store, game.runId, 'krillion');
+    const [a, b] = await Promise.all([
+      p.call('/api/answer', { runId: game.runId, round: 0, answer: good.answer, confirm: true }),
+      p.call('/api/answer', { runId: game.runId, round: 0, answer: '', timeout: true }),
+    ]);
+    const recorded = await h.store.answersFor(game.runId);
+    assert.equal(recorded.length, 1, 'scored once');
+    for (const r of [a, b]) {
+      const st = r.body.state;
+      assert.equal(st.round, 1); assert.equal(st.results.length, 1);
+      assert.equal(st.results[0].score, recorded[0].score, 'response matches what was recorded');
+    }
+  });
+}

@@ -37,7 +37,8 @@ export class MemoryStore {
     this.runs.set(row.id, { next_round: 0, paused_at: null, completed: false, ...row });
     return { ...this.runs.get(row.id) };
   }
-  async startRound(id, roundStart) { const r = this.runs.get(id); if (r && !r.completed && r.round_start === null) r.round_start = roundStart; }
+  /** Starts the next round if it isn't already; returns the updated run, or null if nothing changed. */
+  async startRound(id, roundStart) { const r = this.runs.get(id); if (!r || r.completed || r.round_start !== null) return null; r.round_start = roundStart; return { ...r }; }
   async pause(id, at) { const r = this.runs.get(id); if (r && r.paused_at === null) r.paused_at = at; }
   async resume(id, at) { const r = this.runs.get(id); if (r && r.paused_at !== null) { r.round_start += at - r.paused_at; r.paused_at = null; } }
   /** Atomically records a round's score and advances the run. Returns false if the round was already scored or not open. */

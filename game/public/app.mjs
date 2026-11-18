@@ -81,6 +81,9 @@ async function submit(timeout = false) {
   if (!game || busy || !['preview', 'answering'].includes(phase) || paused) return;
   const raw = $('answer').value.trim(); if (!raw && !timeout) return;
   busy = true; $('submit-btn').disabled = true;
+  // Instant feedback while the server checks the answer.
+  $('submit-btn').textContent = '…';
+  if (raw) { const rect = $('answer').getBoundingClientRect(); for (let i = 0; i < 12; i++) scene.typeAt(rect.left + Math.random() * rect.width, rect.top + Math.random() * rect.height, 1); }
   try {
     const response = await api('answer', { runId: game.runId, round: game.round, answer: raw, timeout, confirm: correction === raw, previewCorrection: settings.corrections });
     if (response.rejected) {
@@ -94,7 +97,7 @@ async function submit(timeout = false) {
     } else if (response.alreadyScored) { setGame(response.state); await resumeView(); }
     else {
       const oldScore = currentScore; setGame(response.state); sound.event('submit');
-      const rect = $('answer').getBoundingClientRect(); for (let i = 0; i < 12; i++) scene.typeAt(rect.left + Math.random() * rect.width, rect.top + Math.random() * rect.height, 1);
+      $('submit-btn').textContent = 'DIVE';
       await plunge(response.result, oldScore);
     }
   } catch (e) {
@@ -105,7 +108,7 @@ async function submit(timeout = false) {
     if (timeout) { $('answer-status').textContent = 'Reconnecting…'; setTimeout(() => { autoSent = false; }, 600); }
     else $('answer-status').textContent = e.message;
   }
-  finally { busy = false; if (phase === 'answering') { $('submit-btn').disabled = !$('answer').value.trim(); $('answer').focus({ preventScroll: true }); } }
+  finally { busy = false; $('submit-btn').textContent = 'DIVE'; if (phase === 'answering') { $('submit-btn').disabled = !$('answer').value.trim(); $('answer').focus({ preventScroll: true }); } }
 }
 function animateScore(from, to, gold = false) {
   if (scoreAnimation) cancelAnimationFrame(scoreAnimation);
