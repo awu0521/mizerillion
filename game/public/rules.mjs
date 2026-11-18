@@ -58,6 +58,12 @@ export function matchAnswer(input, answers) {
   const entries = answers.flatMap(a => [a.answer, ...(a.aliases || [])].map(word => ({ a, key: normalize(word) }))).filter(e => e.key);
   const exact = entries.find(e => e.key === key);
   if (exact) return { ...exact.a, correction: key !== normalize(exact.a.answer) };
+  // Stretched letters: "lmaoooo" / "bruhhh" / "Thomas ERRRGH Sing" match once repeats are collapsed, if only one answer fits.
+  const squeeze = s => s.replace(/(.)\1+/gu, '$1'), sq = squeeze(key);
+  if (Array.from(sq).length >= 3) {
+    const hits = entries.filter(e => squeeze(e.key) === sq);
+    if (hits.length && hits.every(e => e.a.answer === hits[0].a.answer)) return { ...hits[0].a, correction: true };
+  }
   const allowance = length < 4 ? 0 : length < 8 ? 1 : 2;
   const candidates = entries.map(e => ({ ...e, d: distance(key, e.key, allowance) })).filter(e => e.d <= allowance).sort((x, y) => x.d - y.d);
   if (candidates.length && (!candidates[1] || candidates[0].d < candidates[1].d || candidates[0].a.answer === candidates[1].a.answer)) return { ...candidates[0].a, correction: true };

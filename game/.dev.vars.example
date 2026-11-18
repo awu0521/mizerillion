@@ -1,0 +1,4 @@
+# Copy to .dev.vars (git-ignored) for `wrangler dev` and the scripts in scripts/.
+# Supabase dashboard -> Project Settings -> API (Data API) -> Project URL / service_role secret key.
+SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=

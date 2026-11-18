@@ -22,8 +22,15 @@ const now = () => Date.now() + clockAtServer;
 async function api(path, data) {
   const response = await fetch('/api/' + path, { credentials: 'same-origin', cache: 'no-store', ...(data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }), signal: AbortSignal.timeout(15000) });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'The signal is lost. Please retry.');
+  if (!response.ok) throw Object.assign(new Error(body.error || 'The signal is lost. Please retry.'), { status: response.status });
   return body;
+}
+// The server no longer has this dive (only happens when the in-memory test server restarts).
+// Go back to the start screen instead of leaving the round frozen.
+function lostDive() {
+  write('run', null); game = null; paused = false; autoSent = false; correction = null; visualScore = 0;
+  scene.setDepth(0); setPhase('intro'); updateHud();
+  $('boot-error').textContent = 'That dive was lost because the server restarted. Start a new one.'; $('boot-error').hidden = false;
 }
 function setPhase(value) {
   const card = $('prompt-card'), exiting = value === 'plunge' && !card.hidden;
@@ -90,7 +97,14 @@ async function submit(timeout = false) {
       const rect = $('answer').getBoundingClientRect(); for (let i = 0; i < 12; i++) scene.typeAt(rect.left + Math.random() * rect.width, rect.top + Math.random() * rect.height, 1);
       await plunge(response.result, oldScore);
     }
-  } catch (e) { $('answer-status').textContent = e.message; $('answer-status').className = 'answer-status'; }
+  } catch (e) {
+    if (e.status === 404) { lostDive(); return; }
+    $('answer-status').className = 'answer-status';
+    // The end-of-round submit must get through: retry it shortly instead of freezing at 0.
+    // Retry quickly, so a typed answer still lands inside the server's 1.5 s grace window.
+    if (timeout) { $('answer-status').textContent = 'Reconnecting…'; setTimeout(() => { autoSent = false; }, 600); }
+    else $('answer-status').textContent = e.message;
+  }
   finally { busy = false; if (phase === 'answering') { $('submit-btn').disabled = !$('answer').value.trim(); $('answer').focus({ preventScroll: true }); } }
 }
 function animateScore(from, to, gold = false) {
@@ -144,7 +158,7 @@ async function next() {
   try {
     if (game.completed) { sound.event('surface'); const duration = Math.min(9000, Math.max(2500, (currentScore * 10 + 30) * 3)); scene.moveCamera(-45, testMode ? 1 : duration, easeOut); await showResults(); return; }
     sound.event('begin'); setGame(await api('next', { runId: game.runId })); showRound();
-  } catch (e) { $('land-quip').textContent = e.message; } finally { busy = false; }
+  } catch (e) { if (e.status === 404) lostDive(); else $('land-quip').textContent = e.message; } finally { busy = false; }
 }
 function syncBuddyGold() { const gold = game?.results.some(r => r.tier === 'krillion'); $('mascot').classList.toggle('gold', !!gold); if (settings.buddy === 'krill') $('mascot').querySelector('img').src = gold ? '/assets/krill-gold.svg' : '/assets/krill.svg'; }
 function historyStats() {
@@ -198,7 +212,7 @@ function openLogbook() {
 }
 function openWardrobe() { const best = historyStats().bestStreak; $('buddy-list').innerHTML = buddyOptions.map(b => `<button data-buddy="${b.id}" aria-pressed="${settings.buddy === b.id}" ${best < b.streak ? 'disabled' : ''}><img src="${b.src}" alt=""><span>${b.name}</span><small>${best >= b.streak ? 'Earned' : b.streak + '-day streak'}</small></button>`).join(''); openDialog('wardrobe-dialog'); }
 async function pauseGame() { if (!game || !['preview', 'answering'].includes(phase) || paused) return; paused = true; try { dialogPausePending = api('pause', { runId: game.runId, paused: true }); setGame(await dialogPausePending); } catch { paused = false; } finally { dialogPausePending = null; } }
-async function resumeGame() { if (document.querySelector('dialog[open]') || !paused) return; const rid = game.runId; try { if (dialogPausePending) await dialogPausePending; const resumed = await api('pause', { runId: rid, paused: false }); if (game.runId === rid) setGame(resumed); paused = false; tick(); } catch { $('answer-status').textContent = 'Could not resume. Reopen the menu and try again.'; } }
+async function resumeGame() { if (document.querySelector('dialog[open]') || !paused) return; const rid = game.runId; try { if (dialogPausePending) await dialogPausePending; const resumed = await api('pause', { runId: rid, paused: false }); if (game.runId === rid) setGame(resumed); paused = false; tick(); } catch (e) { if (e.status === 404) { lostDive(); return; } $('answer-status').textContent = 'Could not resume. Reopen the menu and try again.'; } }
 function openDialog(id) { document.querySelectorAll('dialog[open]').forEach(d => d.close()); $(id).showModal(); void pauseGame(); }
 function doAction(action) {
   document.querySelectorAll('dialog[open]').forEach(d => d.close());

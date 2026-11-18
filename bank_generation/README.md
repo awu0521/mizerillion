@@ -45,7 +45,29 @@ python tools/make_prompts.py data/chat.json data/eda_out/stats.json -o data/prom
 - **Like emojis:** edit `LIKE_EMOJIS` at the top of `html_to_json.py`. ❤ counts as a like from anyone. Each person's own emoji counts as a like only when they use it; from anyone else it's a normal reaction. Names are display names from the export, matched case-insensitively by prefix.
 - **Excluded senders:** `EXCLUDE` in `eda.py` (default: `Instagram User`, `Meta AI`) is left out of the stats.
 - **Regulars:** `CORE_MIN_MESSAGES` in `eda.py` (default 1000) sets who gets their own row in the per-person tables.
-- **Prompt answers:** at the top of `make_prompts.py`, `PERSON_ALIASES` lists the names people might type for each member, `EMOJI_WORDS` lists words accepted in place of emoji, `BLOCKLIST` lists words never offered as answers, and `EXCLUDE` lists senders left out.
+- **Prompt answers:** at the top of `make_prompts.py`, `PERSON_ALIASES` lists the names people might type for each member, `EMOJI_WORDS` lists words accepted in place of emoji, `EXTRA_ALIASES` lists other spellings for any answer (places, themes, games, slang like `ppl` → `people`), `BLOCKLIST` lists words never offered as answers, and `EXCLUDE` lists senders left out.
+
+## Aliases
+
+Every run adds aliases automatically, on top of the hand-made lists:
+
+- Unicode names for emoji (🤧 → `sneezing face`, `sneezing`)
+- the text without its emoji (`roys toy🌹` → `roys toy`)
+- both halves of `X (Y)` and `X / Y` (`Kitsilano (Kits)` → `Kitsilano`, `Kits`)
+- the answer without a leading "The"
+- stretched letters collapsed (`ERRRRRRGHHHH` → `ERGH`)
+
+An alias is skipped when it would also match a different answer in the same prompt. Aliases already in the bank are never removed. Separately, the game accepts stretched typing (`lmaoooo`, `bruhhh`) when only one answer fits.
+
+## Updating a hand-edited bank
+
+Once you've edited `prompt_bank.json` by hand, don't regenerate it from scratch. Run:
+
+```bash
+python tools/make_prompts.py data/chat.json data/eda_out/stats.json --update data/prompt_bank.json -o data/prompt_bank.json
+```
+
+This keeps every existing prompt exactly as it is (text, answers, tiers), adds the new aliases, and appends prompts the bank doesn't have yet. Prompt ids in `SKIP_PROMPTS` are never appended, so list the ones you deleted there. New aliases count as a change to the seed script, so seed with `--force`.
 
 ## chat.json
 
