@@ -33,7 +33,7 @@ async function startSession() {
   signedOut = false; csrf = s.csrf; idleMs = s.idleMs;
   absoluteEnd = Date.now() + (s.absoluteExpiresAt - s.serverNow); // the 8-hour limit, in this browser's clock
   $('login-view').hidden = true; $('admin-bar').hidden = false; $('editor-view').hidden = false; $('extras').hidden = false; $('logout-btn').hidden = false;
-  await Promise.all([loadPrompts(), loadPreview(), loadAudit()]);
+  await Promise.all([loadPrompts(), loadPreview(), loadAudit(), loadLockouts()]);
 }
 $('admin-login-form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -282,7 +282,7 @@ async function loadPreview() {
   } catch (e) { $('preview').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 $('preview').addEventListener('click', e => { const b = e.target.closest('[data-prompt]'); if (b) { void openPrompt(b.dataset.prompt); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
-const ACTIONS = { login: 'signed in', login_failed: 'wrong password', login_blocked: 'blocked (too many attempts)', logout: 'signed out', tier: 'tier', aliases: 'aliases', enabled: 'on/off', create_prompt: 'new prompt', edit_prompt: 'question edited', add_answer: 'answer added', edit_answer: 'answer edited', delete_answer: 'answer deleted' };
+const ACTIONS = { login: 'signed in', login_failed: 'wrong password', login_blocked: 'blocked (too many attempts)', logout: 'signed out', tier: 'tier', aliases: 'aliases', enabled: 'on/off', create_prompt: 'new prompt', edit_prompt: 'question edited', add_answer: 'answer added', edit_answer: 'answer edited', delete_answer: 'answer deleted', unlock: 'unlocked logins' };
 const show = v => v === null || v === undefined ? '—' : typeof v === 'string' && TIERS[v] ? tierLabel(v) : Array.isArray(v) ? (v.join(', ') || '(none)')
   : typeof v === 'object' ? Object.entries(v).filter(([, x]) => x !== null && !(Array.isArray(x) && !x.length)).map(([k, x]) => `${k}: ${show(x)}`).join('; ') || '—' : String(v);
 async function loadAudit() {
@@ -293,6 +293,32 @@ async function loadAudit() {
       <td>${e.oldValue !== null || e.newValue !== null ? `${esc(show(e.oldValue))} → ${esc(show(e.newValue))}` : ''}</td><td class="muted">${esc(e.ip || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">Nothing yet.</p>';
   } catch (e) { $('audit').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
+
+// ---------- login lockouts ----------
+const minutesLeft = (until, serverNow) => { const m = Math.ceil((until - serverNow) / 60e3); return m >= 120 ? `${Math.ceil(m / 60)} hours` : m === 1 ? '1 minute' : `${m} minutes`; };
+function renderLockouts(l) {
+  const rows = [];
+  for (const kind of ['player', 'admin']) {
+    const who = kind === 'player' ? 'Player login' : 'Admin login';
+    if (l[kind].globalUntil) rows.push(`<li><b>${who}: switched off for everyone</b> (too many wrong passwords overall), ${minutesLeft(l[kind].globalUntil, l.serverNow)} left <button type="button" class="quiet" data-unlock="${kind}">Unlock everyone</button></li>`);
+    for (const x of l[kind].ips) rows.push(`<li>${who} from <code>${esc(x.ip)}</code>: locked for ${minutesLeft(x.until, l.serverNow)} after ${x.failures} wrong passwords <button type="button" class="quiet" data-unlock="${kind}" data-ip="${esc(x.ip)}">Unlock</button></li>`);
+  }
+  $('lockouts').innerHTML = rows.length
+    ? `<ul class="lockout-list">${rows.join('')}</ul><p class="muted">Unlocking clears those wrong-password attempts, so the next lock starts at 15 minutes again.</p>`
+    : '<p class="muted">Nobody is locked out. <button type="button" class="link-btn" id="refresh-lockouts">refresh</button></p>';
+}
+async function loadLockouts() {
+  try { renderLockouts(await api('lockouts')); } catch (e) { $('lockouts').innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+$('lockouts').addEventListener('click', async e => {
+  if (e.target.id === 'refresh-lockouts') return void loadLockouts();
+  const b = e.target.closest('[data-unlock]'); if (!b) return;
+  b.disabled = true;
+  try {
+    renderLockouts(await api('unlock', { kind: b.dataset.unlock, ...(b.dataset.ip ? { ip: b.dataset.ip } : {}) }));
+    toast(b.dataset.ip ? `Unlocked ${b.dataset.ip}.` : 'Unlocked everyone.'); void loadAudit();
+  } catch (err) { b.disabled = false; toast(err.message, true); }
+});
 
 // ---------- toast with undo ----------
 function toast(message, isError = false, undo = null) {

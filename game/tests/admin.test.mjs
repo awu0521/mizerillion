@@ -299,4 +299,33 @@ for (const kind of ['memory', 'supabase']) {
     assert.match(inside, /data-signed-in="true"/); assert.match(inside, /id="login-view" class="admin-login" hidden>/); assert.match(inside, /id="editor-view" class="admin-editor">/);
     for (const p of FIXTURE_BANK.prompts) assert.ok(!inside.includes(p.text), 'still no prompt data in the HTML');
   });
+
+  test(kind + ': an admin can see and lift login lockouts early; it is audited and admin-only', async () => {
+    const h = await harness(kind), friend = h.browser({ ip: '128.189.10.20' }), other = h.browser({ ip: '192.0.2.77' });
+    for (let i = 0; i < 5; i++) { await friend.login('typo-' + i); await other.login('nope-' + i); }
+    assert.equal((await friend.login()).status, 429);
+    const a = await h.admin({ ip: '198.51.100.9' });
+    const before = (await a.admin('lockouts')).body;
+    assert.deepEqual(before.player.ips.map(x => [x.ip, x.failures]).sort(), [['128.189.10.20', 5], ['192.0.2.77', 5]]);
+    assert.ok(before.player.ips.every(x => x.until - before.serverNow > 14 * 60e3));
+    assert.equal(before.player.globalUntil, null);
+    // Unlock one IP.
+    const after = (await a.admin('unlock', { kind: 'player', ip: '128.189.10.20' })).body;
+    assert.deepEqual(after.player.ips.map(x => x.ip), ['192.0.2.77']);
+    assert.equal((await friend.login()).status, 200, 'unlocked straight away');
+    assert.equal((await other.login()).status, 429, 'the other IP is still locked');
+    // Unlock everyone, including a global lockout.
+    for (let i = 0; i < 50; i++) await h.browser({ ip: `10.9.${i >> 8}.${i & 255}` }).login('spray-' + i);
+    assert.ok((await a.admin('lockouts')).body.player.globalUntil);
+    assert.equal((await a.admin('unlock', { kind: 'player' })).status, 200);
+    assert.equal((await h.browser({ ip: '172.20.0.1' }).login()).status, 200, 'global lockout lifted');
+    assert.equal((await other.login()).status, 200);
+    // Validation, CSRF and audit.
+    assert.equal((await a.admin('unlock', { kind: 'everyone' })).status, 400);
+    assert.equal((await a.admin('unlock', { kind: 'player', ip: 'x', extra: 1 })).status, 400);
+    assert.equal((await a.raw('/api/admin/unlock', { method: 'POST', body: '{"kind":"player"}', headers: { 'Content-Type': 'application/json', Origin: ORIGIN } })).status, 403, 'needs the CSRF token');
+    const player = await h.player();
+    assert.equal((await player.admin('unlock', { kind: 'player' })).status, 401, 'players cannot unlock');
+    assert.equal((await a.admin('audit')).body.entries.filter(e => e.action === 'unlock').length, 2);
+  });
 }

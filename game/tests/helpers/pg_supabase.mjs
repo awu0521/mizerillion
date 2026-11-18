@@ -32,6 +32,7 @@ class Query {
   insert(rows) { this.op = 'insert'; this.rows = Array.isArray(rows) ? rows : [rows]; return this; }
   upsert(rows, { onConflict, ignoreDuplicates } = {}) { this.insert(rows); this.conflict = { onConflict, ignoreDuplicates }; return this; }
   update(values) { this.op = 'update'; this.values = values; return this; }
+  delete() { this.op = 'delete'; return this; }
   eq(c, v) { this.filters.push(() => `${ident(c)} = ${this.p(v)}`); return this; }
   gte(c, v) { this.filters.push(() => `${ident(c)} >= ${this.p(v)}`); return this; }
   lt(c, v) { this.filters.push(() => `${ident(c)} < ${this.p(v)}`); return this; }
@@ -47,6 +48,7 @@ class Query {
     if (this.op === 'select') return `select ${this.colList(this.cols)} from ${t}${where()}${this.orderBy ? ' order by ' + this.orderBy : ''}${this.limitN ? ' limit ' + this.limitN : ''}`;
     // Like PostgREST: rows arrive as JSON and are converted with the table's own column types
     // (json_populate_record), so jsonb, arrays, timestamps etc. behave as they do in production.
+    if (this.op === 'delete') return `delete from ${t}${where()}`;
     if (this.op === 'update') {
       const keys = Object.keys(this.values).map(ident), row = this.p(JSON.stringify(this.values));
       const sets = keys.length === 1 ? `${keys[0]} = (select ${keys[0]} from json_populate_record(null::${t}, ${row}::json))` : `(${keys.join(',')}) = (select ${keys.join(',')} from json_populate_record(null::${t}, ${row}::json))`;

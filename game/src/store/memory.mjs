@@ -30,6 +30,9 @@ export class MemoryStore {
   async loginAttempts(kind, ip, sinceIso) { return this.attempts[kind].filter(a => a.ip === ip && a.created_at >= sinceIso).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(({ created_at, success }) => ({ created_at, success })); }
   async recentFailures(kind, sinceIso) { return this.attempts[kind].filter(a => !a.success && a.created_at >= sinceIso).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(({ created_at }) => ({ created_at })); }
   async recordLoginAttempt(kind, { ip, success, created_at }) { this.attempts[kind].push({ ip, success, created_at }); }
+  async attemptsSince(kind, sinceIso) { return this.attempts[kind].filter(a => a.created_at >= sinceIso).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(a => ({ ...a })); }
+  /** Deletes failed attempts (for one IP, or all), which lifts the lockouts they caused. */
+  async clearFailedAttempts(kind, ip = null) { this.attempts[kind] = this.attempts[kind].filter(a => a.success || (ip !== null && a.ip !== ip)); }
   async createSession(kind, row) { this.sessions[kind].set(row.token_hash, { member_id: null, revoked: false, ...row }); }
   /** The session plus, for players, the picked member's name and whether they're still active. */
   async getSession(kind, tokenHash) {

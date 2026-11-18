@@ -46,6 +46,7 @@ if (!vars.PLAYER_PASSWORD_HASH) {
 if (!vars.ADMIN_PASSWORD_HASH) console.warn('Note: no ADMIN_PASSWORD_HASH in game/.dev.vars, so /admin sign-in won\'t work. Make one with node scripts/hash_password.mjs.');
 
 console.log(`\nStarting with: ${choice.label}\n`);
-const child = spawn(GAME_DIR + 'node_modules/.bin/wrangler', ['dev', '--port', '8787', '-c', choice.config], { cwd: GAME_DIR, stdio: 'inherit' });
+// LOCAL_DEVELOPMENT only exists locally (the production config doesn't set it).
+const child = spawn(GAME_DIR + 'node_modules/.bin/wrangler', ['dev', '--port', '8787', '-c', choice.config, '--var', 'LOCAL_DEVELOPMENT:true'], { cwd: GAME_DIR, stdio: 'inherit' });
 child.on('exit', code => process.exit(code ?? 0));
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => child.kill(sig));

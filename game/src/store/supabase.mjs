@@ -53,6 +53,15 @@ export class SupabaseStore {
   async recordLoginAttempt(kind, { ip, success, created_at }) {
     check(await this.db.from(this.table(kind, 'login_attempts')).insert({ ip, success, created_at }), 'recordLoginAttempt');
   }
+  async attemptsSince(kind, sinceIso) {
+    return check(await this.db.from(this.table(kind, 'login_attempts')).select('ip,success,created_at').gte('created_at', sinceIso).order('created_at').limit(20000), 'attemptsSince');
+  }
+  /** Deletes failed attempts (for one IP, or all), which lifts the lockouts they caused. */
+  async clearFailedAttempts(kind, ip = null) {
+    let q = this.db.from(this.table(kind, 'login_attempts')).delete().eq('success', false);
+    if (ip !== null) q = q.eq('ip', ip);
+    check(await q, 'clearFailedAttempts');
+  }
   async createSession(kind, row) { check(await this.db.from(this.table(kind, 'sessions')).insert(row), 'createSession'); }
   /** The session plus, for players, the picked member's name and whether they're still active. */
   async getSession(kind, tokenHash) {

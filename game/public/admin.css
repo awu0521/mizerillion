@@ -85,3 +85,5 @@ tr.editing td{background:#0a1628}
 .admin-login-brand{letter-spacing:.24em;color:var(--muted);margin:0 0 4px;font-size:16px}
 .admin-login h2{margin-top:0}
 .admin-back{color:var(--muted);text-decoration:none}.admin-back:hover{color:var(--foam)}
+.lockout-list{margin:6px 0;padding-left:20px;display:grid;gap:8px}
+.lockout-list button{margin-left:8px}

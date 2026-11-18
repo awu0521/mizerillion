@@ -66,6 +66,7 @@ export function adminPage(env = {}, { signedIn = false } = {}) {
   </main>
   <section id="extras" class="admin-extras"${show(signedIn)}>
     <details open><summary>Upcoming prompts</summary><div id="preview"></div></details>
+    <details open><summary>Login lockouts</summary><div id="lockouts"></div></details>
     <details><summary>Audit log</summary><div id="audit"></div></details>
   </section>
   <div id="tier-menu" class="tier-menu" role="listbox" hidden></div>

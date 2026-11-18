@@ -7,10 +7,11 @@
   // run_worker_first: every request, assets included, goes through the Worker first,
   // so security headers (and, from milestone 3, the password gate) apply everywhere.
   // The deployed Worker bundles no prompt bank (the data is in Supabase).
-  "alias": { "prompt-bank": "./src/empty_bank.json" },
+  "alias": { "prompt-bank": "./src/empty_bank.json", "fake-members": "./src/empty_members.json" },
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  // Data lives in Supabase. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY come from .dev.vars locally
-  // and from `wrangler secret put` in production. They are never sent to the browser.
-  "vars": { "LOCAL_DEVELOPMENT": "true" },
+  // Data lives in Supabase. Secrets (never in this file, never sent to the browser):
+  //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PLAYER_PASSWORD_HASH, ADMIN_PASSWORD_HASH
+  // Locally they come from .dev.vars; in production from `wrangler secret put` (npm run secrets).
+  // This file is the production config: npm run deploy uses it. npm run dev adds LOCAL_DEVELOPMENT.
   "observability": { "enabled": true }
 }

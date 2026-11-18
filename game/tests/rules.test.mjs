@@ -85,3 +85,15 @@ test('the public bundle contains no fixture prompt or answer text', () => {
   const text = files.filter(f => /\.(mjs|js|css|html|json|svg|txt)$/.test(f)).map(f => readFileSync(f, 'utf8')).join('\n');
   for (const needle of ['Zorblax', 'Quinterfield', 'Captain Spreadsheet', 'Sergeant Pickles', 'Name a name this group chat has had']) assert.ok(!text.includes(needle), needle);
 });
+
+test('the production config bundles no bank, no fake names, and no local test mode', () => {
+  const jsonc = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+  const config = JSON.parse(jsonc);
+  assert.equal(config.vars?.LOCAL_DEVELOPMENT, undefined);
+  assert.equal(config.vars?.STORE, undefined, 'production uses Supabase');
+  assert.equal(config.alias['prompt-bank'], './src/empty_bank.json');
+  assert.equal(config.alias['fake-members'], './src/empty_members.json');
+  assert.deepEqual(JSON.parse(readFileSync(new URL('../src/empty_bank.json', import.meta.url), 'utf8')).prompts, []);
+  assert.deepEqual(JSON.parse(readFileSync(new URL('../src/empty_members.json', import.meta.url), 'utf8')), []);
+  for (const secret of ['SUPABASE_SERVICE_ROLE_KEY', 'PLAYER_PASSWORD_HASH', 'ADMIN_PASSWORD_HASH']) assert.ok(!(secret in (config.vars || {})), secret + ' must be a secret, not a var');
+});

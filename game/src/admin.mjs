@@ -6,7 +6,7 @@
 // Every change needs POST + this site's Origin + the session's X-CSRF-Token, and is audited.
 import { TIER_KEYS, normalize, gameDate, dayNumber } from '../public/rules.mjs';
 import { verifyPassword, sha256hex, randomToken, TOKEN_FORMAT, fingerprint, csrfFor, timingSafeEqual } from './auth.mjs';
-import { lockedUntil } from './lockout.mjs';
+import { lockedUntil, ipLockedUntil, globalLockedUntil, LIMITS } from './lockout.mjs';
 import { choosePuzzleIds } from './puzzle.mjs';
 import { json, fail, iso, addDays, clientIp, readCookie, waitText, readJson } from './http.mjs';
 
@@ -147,6 +147,21 @@ export function createAdminApi({ store, now = () => Date.now() }) {
     return { error: fail('Someone else just changed this prompt. Reload it and try again.', 409) };
   }
 
+  /** Who is locked out right now, worked out from the attempt log with the same rules as login. */
+  async function lockouts() {
+    const t = now(), out = {};
+    for (const kind of ['player', 'admin']) {
+      const rows = await store.attemptsSince(kind, iso(t - LIMITS.ipHistory));
+      const byIp = new Map();
+      for (const r of rows) { if (!byIp.has(r.ip)) byIp.set(r.ip, []); byIp.get(r.ip).push({ at: Date.parse(r.created_at), success: r.success }); }
+      const ips = [];
+      for (const [ip, list] of byIp) { const until = ipLockedUntil(list); if (until > t) ips.push({ ip, until, failures: list.filter(x => !x.success).length }); }
+      const globalUntil = globalLockedUntil(rows.filter(r => !r.success && Date.parse(r.created_at) >= t - 2 * LIMITS.globalWindow).map(r => Date.parse(r.created_at)));
+      out[kind] = { ips: ips.sort((a, b) => b.until - a.until), globalUntil: globalUntil > t ? globalUntil : null };
+    }
+    return { ...out, serverNow: t };
+  }
+
   async function preview() {
     const today = gameDate(now()), tomorrow = addDays(today, 1);
     const stored = await store.getPuzzle(today);
@@ -192,6 +207,7 @@ export function createAdminApi({ store, now = () => Date.now() }) {
       }
       if (path === 'audit') return json({ entries: (await store.recentAudit(150)).map(e => ({ id: e.id, action: e.action, promptId: e.prompt_id, answer: e.answer, oldValue: e.old_value, newValue: e.new_value, ip: e.ip, at: e.created_at, mine: e.session_id === session.row.id })) });
       if (path === 'preview') return json(await preview());
+      if (path === 'lockouts') return json(await lockouts());
       return fail('Unknown endpoint.', 404);
     }
 
@@ -222,6 +238,16 @@ export function createAdminApi({ store, now = () => Date.now() }) {
     const promptIdOk = id => typeof id === 'string' && PROMPT_ID.test(id);
     const answerOk = a => typeof a === 'string' && a.length <= 256;
 
+    if (path === 'unlock') {
+      // Lifts login lockouts early by clearing failed attempts: one IP, or everyone (also ends a global lockout).
+      const bad = fields(data, ['kind', 'ip']); if (bad) return fail(bad);
+      const { kind, ip } = data;
+      if (!['player', 'admin'].includes(kind)) return fail('kind must be "player" or "admin".');
+      if (ip !== undefined && (typeof ip !== 'string' || !ip || ip.length > 64)) return fail('ip must be an address from the lockout list.');
+      await store.clearFailedAttempts(kind, ip ?? null);
+      await audit(request, session, 'unlock', { new: { kind, ip: ip ?? 'everyone' } });
+      return json(await lockouts());
+    }
     if (path === 'aliases') {
       const bad = fields(data, ['promptId', 'answer', 'aliases']); if (bad) return fail(bad);
       const { promptId, answer } = data;
