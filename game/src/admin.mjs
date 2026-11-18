@@ -4,7 +4,7 @@
 // Sessions: random 32-byte token in the __Host-admin cookie (HttpOnly, Secure, SameSite=Strict),
 // only its SHA-256 hash stored; 30 minutes idle or 8 hours total; a new ADMIN_PASSWORD_HASH ends them.
 // Every change needs POST + this site's Origin + the session's X-CSRF-Token, and is audited.
-import { TIER_KEYS, normalize, gameDate, dayNumber } from '../public/rules.mjs';
+import { TIERS, TIER_KEYS, normalize, gameDate, dayNumber } from '../public/rules.mjs';
 import { verifyPassword, sha256hex, randomToken, TOKEN_FORMAT, fingerprint, csrfFor, timingSafeEqual } from './auth.mjs';
 import { lockedUntil, ipLockedUntil, globalLockedUntil, LIMITS } from './lockout.mjs';
 import { choosePuzzleIds } from './puzzle.mjs';
@@ -72,8 +72,8 @@ export function promptSummary(p) {
   const counts = Object.fromEntries(TIER_KEYS.map(k => [k, 0]));
   for (const a of p.answers) if (counts[a.tier] !== undefined) counts[a.tier]++;
   const warnings = [];
-  if (counts.krillion === 0) warnings.push('No One in a Krillion answer.');
-  if (counts.krillion > 1) warnings.push(`${counts.krillion} One in a Krillion answers (usually there's one).`);
+  if (counts.krillion === 0) warnings.push(`No ${TIERS.krillion.name} answer.`);
+  if (counts.krillion > 1) warnings.push(`${counts.krillion} ${TIERS.krillion.name} answers (usually there's one).`);
   if (counts.plankton === 0) warnings.push('No Plankton answer.');
   return { id: p.id, text: p.text, category: p.category, enabled: !!p.enabled, needsReview: !!p.needs_review, answerCount: p.answers.length, counts, warnings };
 }

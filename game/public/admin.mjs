@@ -167,7 +167,7 @@ function updateCurrent(prompt) {
 }
 function answerRow(a, i) {
   return `<tr data-row="${i}">
-    <td class="a-answer">${esc(a.answer)}${a.autoPick ? ' <span class="muted" title="Picked automatically as the One in a Krillion">auto</span>' : ''}${a.addedHere ? ' <span class="badge added" title="Added on this page">new</span>' : ''}</td>
+    <td class="a-answer">${esc(a.answer)}${a.autoPick ? ' <span class="muted" title="Picked automatically as the ${esc(TIERS.krillion.name)}">auto</span>' : ''}${a.addedHere ? ' <span class="badge added" title="Added on this page">new</span>' : ''}</td>
     <td class="a-aliases">${a.aliases.length ? a.aliases.map(esc).join(', ') : '<span class="muted">—</span>'}</td>
     <td class="a-weight">${a.weight === null ? '' : esc(Math.round(a.weight * 10) / 10)}</td>
     <td class="a-quip">${esc(a.quip || '')}</td>

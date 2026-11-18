@@ -191,7 +191,7 @@ on the server. It has three tabs: **Prompts** (the editor and upcoming prompts),
 - **New prompt** (button above the list): type the question and a category. It starts switched off
   and can't be switched on until it has an answer. Its id comes from the question and never changes.
 - **Answers:** answer, aliases, weight, quip and a coloured **tier chip**. Click the chip, pick a
-  tier, and it saves straight away, with **Undo**. Warnings (no One in a Krillion, more than one, no
+  tier, and it saves straight away, with **Undo**. Warnings (no One in a Mizerillion, more than one, no
   Plankton) never block a save.
 - **Add an answer** (above the table): type it, pick a tier, Add. **edit** on a row changes its text,
   aliases and quip, or deletes it. **edit** next to the question changes the question or category.

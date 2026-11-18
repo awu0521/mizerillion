@@ -148,11 +148,11 @@ for (const kind of ['memory', 'supabase']) {
       if (i === round) assert.equal(r.body.result.score, 15);
       if (i < 6) g = (await before.call('/api/next', { runId: g.runId })).body;
     }
-    // The admin moves Chess to One in a Krillion.
+    // The admin moves Chess to the top tier.
     const saved = await a.admin('tier', { promptId: 'games-played', answer: 'Chess', tier: 'krillion' });
     assert.equal(saved.status, 200); assert.equal(saved.body.oldTier, 'tooclever');
     const chess = saved.body.prompt.answers.find(x => x.answer === 'Chess');
-    assert.equal(chess.tier, 'krillion'); assert.deepEqual(saved.body.prompt.warnings, ['2 One in a Krillion answers (usually there\'s one).']);
+    assert.equal(chess.tier, 'krillion'); assert.deepEqual(saved.body.prompt.warnings, ['2 One in a Mizerillion answers (usually there\'s one).']);
     assert.equal((await h.store.promptFull('games-played')).answers.find(x => x.answer === 'Chess').tier, 'krillion', 'prompts.answers changed');
     const entry = (await a.admin('audit')).body.entries.find(e => e.action === 'tier');
     assert.deepEqual([entry.promptId, entry.answer, entry.oldValue, entry.newValue, entry.mine], ['games-played', 'Chess', 'tooclever', 'krillion', true]);
@@ -188,7 +188,7 @@ for (const kind of ['memory', 'supabase']) {
     // Warnings: no Plankton, no Krillion.
     await a.admin('tier', { promptId: 'media-songs', answer: 'Krill Me Softly', tier: 'schooler' });
     const songs = await a.admin('tier', { promptId: 'media-songs', answer: 'Lullaby for a Lobster', tier: 'deepcut' });
-    assert.deepEqual(songs.body.prompt.warnings, ['No One in a Krillion answer.', 'No Plankton answer.']);
+    assert.deepEqual(songs.body.prompt.warnings, ['No One in a Mizerillion answer.', 'No Plankton answer.']);
     // Enabled toggle.
     assert.equal((await a.admin('enabled', { promptId: 'likes-most-liked', enabled: true })).body.prompt.enabled, true);
     assert.ok((await h.store.enabledPrompts()).some(p => p.id === 'likes-most-liked'));
