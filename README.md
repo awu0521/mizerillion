@@ -44,7 +44,7 @@ It's members only: one shared password gets you in, then you pick your name.
  ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 ```
 
-## 🐟 The tiers
+## The tiers
 
 | | Tier | Points | |
 |:-:|---|:-:|---|
@@ -58,7 +58,7 @@ It's members only: one shared password gets you in, then you pick your name.
 Wrong guesses cost nothing: you get *"no echo. try again"* and keep guessing until the clock runs
 out. Typos get a "did you mean…?" to confirm. Emoji answers count too (❤ 🦭 😭).
 
-## 🧭 How deep did you go?
+## How deep did you go?
 
 | Score | Depth | You are… |
 |---:|---:|---|
@@ -77,7 +77,7 @@ Mizerillion #12 🦐
 🌟🫧🦑🏮🐟🫧🌟
 ```
 
-## 🦐 What's in the dive
+## What's in the dive 🦐 
 
 - **One daily dive per person**, the same 7 prompts for everyone, new at midnight (Vancouver time).
 - **Practice dives** whenever you like. They never count.
