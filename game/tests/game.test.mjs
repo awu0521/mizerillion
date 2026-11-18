@@ -1,46 +1,12 @@
 // Game flow tests, run against both stores: the in-memory store and the Supabase store on real
-// Postgres (PGlite) with the real migrations. Uses only the FAKE bank in fixtures/sample_bank.json.
+// Postgres (PGlite) with the real migrations. Players log in with a made-up password and pick a name.
+// Uses only the FAKE bank in fixtures/sample_bank.json.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createApp } from '../src/worker.mjs';
-import { MemoryStore } from '../src/store/memory.mjs';
-import { SupabaseStore } from '../src/store/supabase.mjs';
 import { isSpecial } from '../src/puzzle.mjs';
-import { planSeed } from '../scripts/lib/seed_plan.mjs';
-import { createTestDatabase, fakeSupabase } from './helpers/pg_supabase.mjs';
+import { harness } from './helpers/app.mjs';
 import { TIERS, ROUND_MS, PREVIEW_MS, GRACE_MS } from '../public/rules.mjs';
 
-const BANK = JSON.parse(readFileSync(new URL('../fixtures/sample_bank.json', import.meta.url), 'utf8'));
-const START = Date.parse('2026-11-20T18:00:00Z'); // 10:00 in Vancouver
-
-async function makeStore(kind) {
-  if (kind === 'memory') { const store = new MemoryStore({ bank: BANK }); return { store, guesses: async () => store.guesses }; }
-  const pg = await createTestDatabase(), db = fakeSupabase(pg);
-  const { error } = await db.from('prompts').insert(planSeed(BANK, []).inserts); // same rows seed_prompts.mjs writes
-  if (error) throw new Error(error.message);
-  return { store: new SupabaseStore(db), guesses: async () => (await pg.query('select * from guess_log order by id')).rows };
-}
-// One Worker app, a fake clock, and per-player cookie jars.
-async function harness(kind) {
-  const { store, guesses } = await makeStore(kind), clock = { t: START };
-  const app = createApp({ store, now: () => clock.t });
-  const env = { ASSETS: { fetch: async () => new Response('not found', { status: 404 }) } };
-  function player() {
-    let cookie = '';
-    return {
-      async call(path, data, headers = {}) {
-        const init = data === undefined ? { headers: { Cookie: cookie, ...headers } } : { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json', Cookie: cookie, ...headers } };
-        const r = await app.fetch(new Request('http://localhost:8787' + path, init), env);
-        const set = r.headers.get('Set-Cookie'); if (set) cookie = set.split(';')[0];
-        const text = await r.text();
-        return { status: r.status, body: JSON.parse(text), text };
-      },
-    };
-  }
-  return { store, clock, player, guesses };
-}
-// Answer for the run's current round, found from the store (the test knows the bank; the client doesn't).
 async function answerFor(store, runId, tier) {
   const run = await store.getRun(runId), [p] = await store.promptsByIds([run.prompt_ids[run.next_round]]);
   return p.answers.find(a => a.tier === tier) || p.answers[0];
@@ -59,7 +25,7 @@ async function playAll(h, p, tierFor = () => 'krillion') {
 
 for (const kind of ['memory', 'supabase']) {
   test(kind + ': the daily puzzle is stored on first open and never changes; the next day avoids it', async () => {
-    const h = await harness(kind), a = h.player(), b = h.player();
+    const h = await harness(kind), a = await h.player(), b = await h.player();
     const ga = (await a.call('/api/start', {})).body, gb = (await b.call('/api/start', {})).body;
     const first = await h.store.getPuzzle('2026-11-20');
     assert.equal(first.prompt_ids.length, 7);
@@ -73,7 +39,7 @@ for (const kind of ['memory', 'supabase']) {
   });
 
   test(kind + ': seven rounds are scored on the server; client scores and retries are ignored', async () => {
-    const h = await harness(kind), p = h.player();
+    const h = await harness(kind), p = await h.player();
     let { body: game } = await p.call('/api/start', {});
     assert.equal(game.prompts.filter(Boolean).length, 1, 'only the current prompt is sent');
     for (let i = 0; i < 7; i++) {
@@ -89,7 +55,7 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal(game.score, 700); assert.equal(game.completed, true);
   });
   test(kind + ': wrong guesses cost nothing; typo asks to confirm; every guess is logged', async () => {
-    const h = await harness(kind), p = h.player();
+    const h = await harness(kind), p = await h.player();
     const { body: game } = await p.call('/api/start', {});
     h.clock.t += PREVIEW_MS + 100;
     const rej = await p.call('/api/answer', { runId: game.runId, round: 0, answer: 'qqqqqqqqqq' });
@@ -107,7 +73,7 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal((await h.guesses()).at(-1).matched_answer, target.answer);
   });
   test(kind + ': round deadline: closed before the preview ends, grace only for timed submits, no reopening', async () => {
-    const h = await harness(kind), p = h.player();
+    const h = await harness(kind), p = await h.player();
     let { body: game } = await p.call('/api/start', {});
     const a0 = await answerFor(h.store, game.runId, 'krillion');
     assert.equal((await p.call('/api/answer', { runId: game.runId, round: 0, answer: a0.answer })).status, 409, 'not open during preview');
@@ -132,7 +98,7 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal(r.body.result.score, 0);
   });
   test(kind + ': one daily dive per member per day; practice is separate and stays off the board', async () => {
-    const h = await harness(kind), p = h.player(), q = h.player();
+    const h = await harness(kind), p = await h.player(), q = await h.player();
     const first = (await p.call('/api/start', {})).body, again = (await p.call('/api/start', {})).body;
     assert.equal(first.runId, again.runId);
     const practice = (await p.call('/api/start', { practice: true })).body;
@@ -149,7 +115,7 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal((await q.call('/api/answer', { runId: first.runId, round: 0, answer: 'x' })).status, 404);
   });
   test(kind + ': answers stay hidden until the dive is complete; the review then shows the board', async () => {
-    const h = await harness(kind), p = h.player(), q = h.player();
+    const h = await harness(kind), p = await h.player(), q = await h.player();
     const { body: game } = await p.call('/api/start', {});
     const run = await h.store.getRun(game.runId), prompts = await h.store.promptsByIds(run.prompt_ids);
     const st = await p.call('/api/state?run=' + game.runId);
@@ -167,7 +133,7 @@ for (const kind of ['memory', 'supabase']) {
     assert.equal(rev.body.board[0].you, true); assert.equal(rev.body.board[0].score, 700);
     assert.ok(!rev.text.includes('weight'), 'weights are not sent');
   });  test(kind + ': two submits for the same round at once score it once, and both get the recorded result', async () => {
-    const h = await harness(kind), p = h.player();
+    const h = await harness(kind), p = await h.player();
     const { body: game } = await p.call('/api/start', {});
     h.clock.t += PREVIEW_MS + 500;
     const good = await answerFor(h.store, game.runId, 'krillion');
@@ -182,5 +148,18 @@ for (const kind of ['memory', 'supabase']) {
       assert.equal(st.round, 1); assert.equal(st.results.length, 1);
       assert.equal(st.results[0].score, recorded[0].score, 'response matches what was recorded');
     }
+  });
+  test(kind + ': a dive left paused (e.g. switched name with the menu open) resumes on the next start', async () => {
+    const h = await harness(kind), phone = await h.player({ name: 'Bea' });
+    const { body: game } = await phone.call('/api/start', {});
+    h.clock.t += PREVIEW_MS + 2000;
+    assert.ok((await phone.call('/api/pause', { runId: game.runId, paused: true })).body.pausedAt);
+    h.clock.t += 60e3; // the menu stays open, then the player switches away
+    const laptop = await h.player({ name: 'Bea' });
+    const again = (await laptop.call('/api/start', {})).body;
+    assert.equal(again.runId, game.runId); assert.equal(again.pausedAt, null);
+    assert.equal(again.roundStart, game.roundStart + 60e3, 'the paused minute is given back');
+    const good = await answerFor(h.store, game.runId, 'plankton');
+    assert.equal((await laptop.call('/api/answer', { runId: game.runId, round: 0, answer: good.answer, confirm: true })).body.result.score, 10);
   });
 }

@@ -4,10 +4,10 @@
 //   npm run dev -- bank    -> your real prompt_bank.json, in memory (no database)
 //   npm run dev -- fixture -> the fake test bank, in memory
 //   npm run dev -- supabase
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
-import { GAME_DIR } from './lib/env.mjs';
+import { GAME_DIR, parseDevVars } from './lib/env.mjs';
 
 const BANK_FILE = GAME_DIR + '../bank_generation/data/prompt_bank.json';
 const CHOICES = [
@@ -37,6 +37,12 @@ if (arg && !choice) { console.error(`Unknown option "${process.argv[2]}". Use on
 if (!choice) choice = process.stdin.isTTY ? await ask() : CHOICES[1];
 const ok = choice.ok();
 if (ok !== true) { console.error(ok); process.exit(1); }
+// Every mode needs the player password hash, or nobody can get past the password screen.
+const vars = existsSync(GAME_DIR + '.dev.vars') ? parseDevVars(readFileSync(GAME_DIR + '.dev.vars', 'utf8')) : {};
+if (!vars.PLAYER_PASSWORD_HASH) {
+  console.error('game/.dev.vars has no PLAYER_PASSWORD_HASH, so nobody could log in. Make one:\n  node scripts/hash_password.mjs\nthen add this line to game/.dev.vars:\n  PLAYER_PASSWORD_HASH=<the printed hash>');
+  process.exit(1);
+}
 
 console.log(`\nStarting with: ${choice.label}\n`);
 const child = spawn(GAME_DIR + 'node_modules/.bin/wrangler', ['dev', '--port', '8787', '-c', choice.config], { cwd: GAME_DIR, stdio: 'inherit' });

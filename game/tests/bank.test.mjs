@@ -8,8 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createApp } from '../src/worker.mjs';
-import { MemoryStore } from '../src/store/memory.mjs';
+import { harness } from './helpers/app.mjs';
 import { pickPrompts, seededRandom, isSpecial, MAX_PER_CATEGORY, MAX_SPECIAL } from '../src/puzzle.mjs';
 import { validateBank, planSeed } from '../scripts/lib/seed_plan.mjs';
 import { normalize, matchAnswer, TIERS, PREVIEW_MS } from '../public/rules.mjs';
@@ -24,6 +23,9 @@ test('real bank: valid for seeding', { skip }, () => {
   const { errors, warnings } = validateBank(BANK);
   assert.equal(errors.length, 0, errors.join('\n').replace(/answer "[^"]*"/g, 'an answer'));
   if (warnings.length) console.log(`  note: ${warnings.length} answer(s) can't be typed: ${warnings.map(w => w.match(/\(([^)]+)\)/)?.[1]).join(', ')}`);
+  // Answers that appear word-for-word in their own question can be copied straight off the screen.
+  const copyable = BANK.prompts.flatMap(p => p.answers.map((a, i) => ({ p, a, i }))).filter(({ p, a }) => Array.from(a.answer).length >= 4 && p.text.includes(a.answer));
+  if (copyable.length) console.log(`  note: answer(s) that appear in their own question (anyone can copy them): ${copyable.map(({ p, i }) => `${p.id} #${i + 1}`).join(', ')}`);
 });
 
 test('real bank: every answer and alias matches its own answer, never another one', { skip }, () => {
@@ -55,15 +57,8 @@ test('real bank: enough enabled prompts for 60 days of puzzles within the select
 });
 
 test('real bank: a full daily dive and a practice dive play through on the server', { skip }, async () => {
-  const store = new MemoryStore({ bank: BANK }), clock = { t: Date.parse('2026-11-20T18:00:00Z') };
-  const app = createApp({ store, now: () => clock.t });
-  const env = { ASSETS: { fetch: async () => new Response('', { status: 404 }) } };
-  let cookie = '';
-  const call = async (path, data) => {
-    const r = await app.fetch(new Request('http://localhost' + path, data === undefined ? { headers: { Cookie: cookie } } : { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json', Cookie: cookie } }), env);
-    if (r.headers.get('Set-Cookie')) cookie = r.headers.get('Set-Cookie').split(';')[0];
-    return { status: r.status, text: await r.text() };
-  };
+  const h = await harness('memory', { bank: BANK }), store = h.store, clock = h.clock, player = await h.player();
+  const call = (path, data) => player.call(path, data);
   for (const practice of [false, true]) {
     let game = JSON.parse((await call('/api/start', { practice })).text), expected = 0;
     for (let i = 0; i < 7; i++) {
@@ -74,8 +69,13 @@ test('real bank: a full daily dive and a practice dive play through on the serve
       // prompt texts are left out of the search: names legitimately repeat across prompts.
       const st = JSON.parse((await call('/api/state?run=' + game.runId)).text);
       assert.ok(st.prompts.slice(i + 1).every(x => x === null), `${p.id}: a future prompt was sent`);
-      const fresh = JSON.stringify({ ...st, results: [], prompts: st.prompts.slice(i) });
-      assert.ok(p.answers.every(a => Array.from(a.answer).length < 4 || !fresh.includes(JSON.stringify(a.answer).slice(1, -1))), `${p.id}: an answer was sent before it was scored`);
+      // Only text values are searched: field names like "completed" and values like "practice" are
+      // ordinary words that can also be answers.
+      const texts = []; (function collect(v, key) { if (typeof v === 'string' && key !== 'mode') texts.push(v); else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) collect(x, k); })({ ...st, results: [], prompts: st.prompts.slice(i) });
+      const fresh = texts.join('\n');
+      // (Answers that are part of the question itself are shown by design; the validity test lists them.)
+      const leaked = p.answers.findIndex(a => Array.from(a.answer).length >= 4 && !p.text.includes(a.answer) && fresh.includes(a.answer));
+      assert.equal(leaked, -1, `${p.id}: answer #${leaked + 1} was sent before it was scored`);
       const r = JSON.parse((await call('/api/answer', { runId: game.runId, round: i, answer: target.answer, confirm: true })).text);
       assert.equal(r.result.answer, target.answer, `${p.id}: #${index(p, target) + 1} did not score as itself`);
       expected += TIERS[target.tier].score;

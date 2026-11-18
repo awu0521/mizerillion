@@ -235,3 +235,19 @@ body[data-phase="intro"] .menu-btn,body[data-phase="done"] .menu-btn,body[data-p
 .results{inset:0;padding:28px max(20px,calc((100vw - 720px)/2)) 60px;background:linear-gradient(#050a14e6,#050a14d9 30%,#050a14e6)}
 body[data-phase="done"] .hero{visibility:hidden}
 @media(min-width:900px){.result-score strong{font-size:clamp(96px,9vw,140px)}}
+
+/* ---- Mizerillion: password screen, name picker ---- */
+.login-form{display:grid;gap:10px;width:100%}
+.login-label{font-size:14px;letter-spacing:.24em;color:var(--muted)}
+.login-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.login-row input{font:inherit;font-size:22px;min-width:0;padding:12px 14px;color:var(--foam);background:#0b1526eb;border:2px solid #1b3050;outline:none}
+.login-row input:focus{border-color:var(--cyan)}
+.login-row .begin-btn{width:auto;padding:12px 22px;font-size:20px;animation:none}
+@media(max-width:520px){.login-row{grid-template-columns:1fr}}
+.who-line{margin:0;font-size:17px;color:var(--muted);letter-spacing:.06em}
+.who-line b{color:var(--foam);font-weight:400}
+.who-panel h2{margin-top:4px}
+.member-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:14px 0}
+.member-list button{font:inherit;font-size:20px;padding:12px 10px;color:var(--foam);background:#0b1526;border:2px solid #1b3050;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.member-list button:hover,.member-list button:focus-visible{border-color:var(--cyan);outline:none}
+.member-list button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold)}

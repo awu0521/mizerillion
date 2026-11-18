@@ -37,14 +37,28 @@ export class SupabaseStore {
   async member(id) {
     return check(await this.db.from('members').select('id,display_name,active,created_at').eq('id', id).maybeSingle(), 'member');
   }
-  /** Milestone 2 dev identity only (replaced by pick-your-name in milestone 3). */
-  async ensureMember(id, displayName) {
-    const existing = await this.member(id);
-    if (existing) return existing;
-    const { error } = await this.db.from('members').insert({ id, display_name: displayName, active: false });
-    if (error && error.code !== UNIQUE_VIOLATION) throw new Error('Supabase ensureMember failed: ' + error.message);
-    return this.member(id);
+  async activeMembers() {
+    return check(await this.db.from('members').select('id,display_name').eq('active', true).order('display_name'), 'activeMembers');
   }
+
+  // login attempts and sessions; kind is 'player' (or 'admin', milestone 4)
+  table(kind, what) { if (!['player', 'admin'].includes(kind)) throw new Error('bad session kind'); return `${kind}_${what}`; }
+  async loginAttempts(kind, ip, sinceIso) {
+    return check(await this.db.from(this.table(kind, 'login_attempts')).select('created_at,success').eq('ip', ip).gte('created_at', sinceIso).order('created_at'), 'loginAttempts');
+  }
+  async recentFailures(kind, sinceIso) {
+    return check(await this.db.from(this.table(kind, 'login_attempts')).select('created_at').eq('success', false).gte('created_at', sinceIso).order('created_at'), 'recentFailures');
+  }
+  async recordLoginAttempt(kind, { ip, success, created_at }) {
+    check(await this.db.from(this.table(kind, 'login_attempts')).insert({ ip, success, created_at }), 'recordLoginAttempt');
+  }
+  async createSession(kind, row) { check(await this.db.from(this.table(kind, 'sessions')).insert(row), 'createSession'); }
+  /** The session plus, for players, the picked member's name and whether they're still active. */
+  async getSession(kind, tokenHash) {
+    const source = kind === 'player' ? 'player_session_view' : this.table(kind, 'sessions');
+    return check(await this.db.from(source).select('*').eq('token_hash', tokenHash).maybeSingle(), 'getSession');
+  }
+  async updateSession(kind, tokenHash, patch) { check(await this.db.from(this.table(kind, 'sessions')).update(patch).eq('token_hash', tokenHash), 'updateSession'); }
 
   // puzzles
   async getPuzzle(date) {

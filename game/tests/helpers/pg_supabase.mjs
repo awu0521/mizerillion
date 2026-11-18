@@ -11,7 +11,7 @@ const ident = name => { if (!IDENT.test(name)) throw new Error('bad identifier '
 export async function createTestDatabase() {
   const pg = new PGlite({
     // Return values the way PostgREST does: dates and timestamps as strings, bigint as numbers.
-    parsers: { 1082: v => v, 1114: v => v, 1184: v => v, 20: v => Number(v) },
+    parsers: { 1082: v => v, 1114: v => v, 1184: v => new Date(v.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')).toISOString(), 20: v => Number(v) },
   });
   // Roles that exist on every Supabase project. Deliberately NO default privileges: like a Supabase
   // project with automatic table exposure turned off, so the migrations must grant what they need.

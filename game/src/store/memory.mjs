@@ -13,16 +13,29 @@ export class MemoryStore {
     this.runs = new Map();
     this.answers = [];
     this.guesses = [];
+    this.attempts = { player: [], admin: [] };
+    this.sessions = { player: new Map(), admin: new Map() };
   }
   // prompts
   async enabledPrompts() { return [...this.prompts.values()].filter(p => p.enabled).map(({ id, category }) => ({ id, category })); }
   async promptsByIds(ids) { return ids.map(id => this.prompts.get(id)).filter(Boolean).map(p => structuredClone(p)); }
   // members
   async member(id) { return this.members.get(id) || null; }
-  async ensureMember(id, displayName) {
-    if (!this.members.has(id)) this.members.set(id, { id, display_name: displayName, active: true, created_at: new Date().toISOString() });
-    return this.members.get(id);
+  async activeMembers() { return [...this.members.values()].filter(m => m.active).map(({ id, display_name }) => ({ id, display_name })).sort((a, b) => a.display_name.localeCompare(b.display_name)); }
+
+  // login attempts and sessions; kind is 'player' (or 'admin', milestone 4)
+  async loginAttempts(kind, ip, sinceIso) { return this.attempts[kind].filter(a => a.ip === ip && a.created_at >= sinceIso).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(({ created_at, success }) => ({ created_at, success })); }
+  async recentFailures(kind, sinceIso) { return this.attempts[kind].filter(a => !a.success && a.created_at >= sinceIso).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(({ created_at }) => ({ created_at })); }
+  async recordLoginAttempt(kind, { ip, success, created_at }) { this.attempts[kind].push({ ip, success, created_at }); }
+  async createSession(kind, row) { this.sessions[kind].set(row.token_hash, { member_id: null, revoked: false, ...row }); }
+  /** The session plus, for players, the picked member's name and whether they're still active. */
+  async getSession(kind, tokenHash) {
+    const s = this.sessions[kind].get(tokenHash);
+    if (!s) return null;
+    const m = s.member_id ? this.members.get(s.member_id) : null;
+    return { ...s, display_name: m?.display_name ?? null, member_active: m ? m.active : null };
   }
+  async updateSession(kind, tokenHash, patch) { const s = this.sessions[kind].get(tokenHash); if (s) Object.assign(s, patch); }
   // puzzles
   async getPuzzle(date) { return this.puzzles.get(date) || null; }
   /** Insert if absent; always returns the stored row (first writer wins). */

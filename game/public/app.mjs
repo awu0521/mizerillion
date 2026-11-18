@@ -12,15 +12,19 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const runtime = JSON.parse($('runtime-config').textContent);
 const testMode = runtime.local && new URLSearchParams(location.search).has('test');
 const KEY = 'mz:';
-const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(KEY + key)) ?? fallback; } catch { return fallback; } };
-const write = (key, value) => { try { localStorage.setItem(KEY + key, JSON.stringify(value)); } catch { /* private browsing can block storage */ } };
+let scope = ''; // "<member id>:" once the player has picked their name
+const fullKey = key => KEY + (key === 'settings' ? '' : scope) + key;
+const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(fullKey(key))) ?? fallback; } catch { return fallback; } };
+const write = (key, value) => { try { localStorage.setItem(fullKey(key), JSON.stringify(value)); } catch { /* private browsing can block storage */ } };
+let csrf = ''; // per-session token from /api/session, sent with every request that changes data
 const settings = { lowPower: false, colorblind: false, corrections: true, clearRejected: false, buddy: 'krill', ...read('settings', {}) };
 const scene = new Ocean($('ocean'), $('mascot')), sound = new Sound();
 let today = null, game = null, phase = 'intro', busy = false, autoSent = false, correction = null, lastTick = -1, review = null, currentScore = 0, paused = false, dialogPausePending = null, clockAtServer = 0, visualScore = 0, scoreAnimation = null, promptExitTimer = null;
 const now = () => Date.now() + clockAtServer;
 
 async function api(path, data) {
-  const response = await fetch('/api/' + path, { credentials: 'same-origin', cache: 'no-store', ...(data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }), signal: AbortSignal.timeout(15000) });
+  const response = await fetch('/api/' + path, { credentials: 'same-origin', cache: 'no-store', ...(data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(data) }), signal: AbortSignal.timeout(15000) });
+  if (response.status === 401) { location.reload(); await new Promise(() => {}); }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(body.error || 'The signal is lost. Please retry.'), { status: response.status });
   return body;
@@ -215,7 +219,7 @@ function openLogbook() {
 }
 function openWardrobe() { const best = historyStats().bestStreak; $('buddy-list').innerHTML = buddyOptions.map(b => `<button data-buddy="${b.id}" aria-pressed="${settings.buddy === b.id}" ${best < b.streak ? 'disabled' : ''}><img src="${b.src}" alt=""><span>${b.name}</span><small>${best >= b.streak ? 'Earned' : b.streak + '-day streak'}</small></button>`).join(''); openDialog('wardrobe-dialog'); }
 async function pauseGame() { if (!game || !['preview', 'answering'].includes(phase) || paused) return; paused = true; try { dialogPausePending = api('pause', { runId: game.runId, paused: true }); setGame(await dialogPausePending); } catch { paused = false; } finally { dialogPausePending = null; } }
-async function resumeGame() { if (document.querySelector('dialog[open]') || !paused) return; const rid = game.runId; try { if (dialogPausePending) await dialogPausePending; const resumed = await api('pause', { runId: rid, paused: false }); if (game.runId === rid) setGame(resumed); paused = false; tick(); } catch (e) { if (e.status === 404) { lostDive(); return; } $('answer-status').textContent = 'Could not resume. Reopen the menu and try again.'; } }
+async function resumeGame() { if (leaving || document.querySelector('dialog[open]') || !paused) return; const rid = game.runId; try { if (dialogPausePending) await dialogPausePending; const resumed = await api('pause', { runId: rid, paused: false }); if (game.runId === rid) setGame(resumed); paused = false; tick(); } catch (e) { if (e.status === 404) { lostDive(); return; } $('answer-status').textContent = 'Could not resume. Reopen the menu and try again.'; } }
 function openDialog(id) { document.querySelectorAll('dialog[open]').forEach(d => d.close()); $(id).showModal(); void pauseGame(); }
 function doAction(action) {
   document.querySelectorAll('dialog[open]').forEach(d => d.close());
@@ -223,6 +227,42 @@ function doAction(action) {
   if (action === 'practice') void begin(true);
   if (action === 'settings') openDialog('settings-dialog');
   if (action === 'logbook') openLogbook();
+  if (action === 'switch') void switchMember();
+  if (action === 'logout') void logout();
+}
+// "Not you? Switch": forget the name on this device (the server session keeps the password).
+// Before leaving, un-pause the dive so it isn't left frozen on the server.
+let leaving = false;
+async function leaveDive() {
+  leaving = true;
+  if (game && paused) { try { await (dialogPausePending || Promise.resolve()); await api('pause', { runId: game.runId, paused: false }); } catch { /* the server also resumes on the next start */ } }
+}
+async function switchMember() {
+  await leaveDive();
+  try { await api('member', { memberId: null }); } catch { /* reload shows the right screen either way */ }
+  location.reload();
+}
+async function logout() {
+  await leaveDive();
+  try { await api('logout', {}); } catch { /* the reload shows the password screen either way */ }
+  location.reload();
+}
+// Name picker. Resolves with the picked member; can't be dismissed without picking.
+async function pickMember() {
+  const dialog = $('who-dialog'), list = $('member-list');
+  list.innerHTML = '<p class="muted">Loading names…</p>';
+  dialog.showModal();
+  const { members } = await api('members');
+  if (!members.length) { list.innerHTML = '<p class="muted">No names yet. Ask whoever runs the game to add you.</p>'; return new Promise(() => {}); }
+  list.innerHTML = members.map(m => `<button type="button" role="listitem" data-member="${escape(m.id)}">${escape(m.name)}</button>`).join('');
+  return new Promise(resolve => {
+    list.onclick = async e => {
+      const b = e.target.closest('[data-member]'); if (!b) return;
+      list.querySelectorAll('button').forEach(x => x.disabled = true); b.setAttribute('aria-pressed', 'true');
+      try { const { member } = await api('member', { memberId: b.dataset.member }); dialog.close(); resolve(member); }
+      catch (err) { $('who-status').textContent = err.message; list.querySelectorAll('button').forEach(x => x.disabled = false); b.removeAttribute('aria-pressed'); }
+    };
+  });
 }
 function tick() {
   if (game && ['preview', 'answering'].includes(phase) && !paused) {
@@ -261,13 +301,21 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => { if (e.target.matches('[data-setting]')) { settings[e.target.dataset.setting] = e.target.checked; write('settings', settings); applySettings(); } });
 document.addEventListener('input', e => { if (e.target.matches('.search-answers')) { const text = e.target.value.toLowerCase(); e.target.nextElementSibling.querySelectorAll('li').forEach(li => li.hidden = !li.dataset.answer.includes(text)); } });
-document.querySelectorAll('dialog').forEach(d => { d.addEventListener('close', () => void resumeGame()); d.addEventListener('click', e => { if (e.target === d) { const r = d.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close(); } }); });
+$('who-dialog').addEventListener('cancel', e => e.preventDefault());
+document.querySelectorAll('dialog').forEach(d => { d.addEventListener('close', () => void resumeGame()); d.addEventListener('click', e => { if (e.target === d && d.id !== 'who-dialog') { const r = d.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close(); } }); });
 document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'f' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && !e.ctrlKey && !e.metaKey) { if (document.fullscreenElement) document.exitFullscreen?.(); else $('game').requestFullscreen?.().catch(() => {}); } });
 function viewport() { const height = window.visualViewport?.height || innerHeight; document.documentElement.style.setProperty('--vh', height + 'px'); }
 viewport(); window.visualViewport?.addEventListener('resize', viewport); window.addEventListener('resize', viewport);
 setInterval(tick, 80);
 (async () => {
   try {
+    const session = await api('session');
+    if (!session.authenticated) { location.reload(); return; }
+    csrf = session.csrf;
+    const member = session.member || await pickMember();
+    scope = member.id + ':';
+    $('who-name').textContent = member.name; $('who-line').hidden = false;
+    applySettings();
     today = await api('today'); $('day-number').textContent = 'DIVE #' + today.dayNumber;
     const saved = read('run', null);
     if (saved?.date === today.date && saved?.runId) {
