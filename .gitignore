@@ -19,3 +19,7 @@ venv/
 
 # OS / editor
 .DS_Store
+
+# Game (Cloudflare Worker)
+node_modules/
+.wrangler/

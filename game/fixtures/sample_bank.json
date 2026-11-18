@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "source": "FAKE fixture bank for development and tests. Every name and answer here is made up.",
+  "tiers": { "plankton": 10, "tooclever": 15, "schooler": 30, "rare": 60, "deepcut": 85, "krillion": 100 },
+  "prompts": [
+    { "id": "group-names", "text": "Name a name this group chat has had", "category": "system",
+      "answers": [
+        { "answer": "The Krill Pit", "aliases": ["krill pit"], "tier": "plankton", "weight": 120.5, "quip": "Used 120 days, set by Avery" },
+        { "answer": "Soup Society", "tier": "schooler", "weight": 40.2, "quip": "Used 40 days, set by Bea" },
+        { "answer": "Seal Team Sux", "tier": "rare", "weight": 9.1, "quip": "Used 9 days, set by Cosmo" },
+        { "answer": "Goblin Hours", "tier": "deepcut", "weight": 2.3, "quip": "Used 2 days, set by Dex" },
+        { "answer": "Zorblax Quinterfield Appreciation Society", "aliases": ["zorblax"], "tier": "krillion", "weight": 0.2, "quip": "Lasted four hours, set by Juniper", "auto_pick": true }
+      ] },
+    { "id": "system-themes", "text": "Name a chat theme this group has used", "category": "system",
+      "answers": [
+        { "answer": "Ocean", "tier": "plankton", "weight": 80 },
+        { "answer": "Love", "tier": "schooler", "weight": 22 },
+        { "answer": "Lo-fi", "aliases": ["lofi"], "tier": "rare", "weight": 6 },
+        { "answer": "Pride", "tier": "deepcut", "weight": 2 },
+        { "answer": "Avocado", "tier": "krillion", "weight": 1, "auto_pick": true }
+      ] },
+    { "id": "nicknames-avery", "text": "Name a nickname Avery has had in this chat", "category": "people",
+      "answers": [
+        { "answer": "Ave", "tier": "plankton", "weight": 50 },
+        { "answer": "AV Club", "tier": "tooclever", "weight": 30, "quip": "Everyone thinks they're the first to think of it" },
+        { "answer": "Avocado", "aliases": ["avo"], "tier": "schooler", "weight": 14 },
+        { "answer": "Big A", "tier": "rare", "weight": 4 },
+        { "answer": "Captain Spreadsheet", "tier": "krillion", "weight": 0.5, "quip": "Set by Dex during tax season", "auto_pick": true }
+      ] },
+    { "id": "nicknames-bea", "text": "Name a nickname Bea has had in this chat", "category": "people",
+      "answers": [
+        { "answer": "Bee", "aliases": ["🐝"], "tier": "plankton", "weight": 60 },
+        { "answer": "Queen Bea", "tier": "schooler", "weight": 18 },
+        { "answer": "Beatrix Potter", "tier": "rare", "weight": 5 },
+        { "answer": "Bumble", "tier": "deepcut", "weight": 1.5 },
+        { "answer": "Sergeant Pickles", "tier": "krillion", "weight": 0.3, "auto_pick": true }
+      ] },
+    { "id": "people-first-reply", "text": "Name someone who is always first to reply", "category": "people",
+      "answers": [
+        { "answer": "Cosmo", "tier": "plankton", "weight": 900 },
+        { "answer": "Bea", "tier": "schooler", "weight": 400 },
+        { "answer": "Avery", "tier": "rare", "weight": 120 },
+        { "answer": "Dex", "tier": "deepcut", "weight": 40 },
+        { "answer": "Juniper", "aliases": ["june", "junie"], "tier": "krillion", "weight": 5, "auto_pick": true }
+      ] },
+    { "id": "likes-emoji", "text": "Name an emoji this chat reacts with", "category": "likes",
+      "answers": [
+        { "answer": "❤", "aliases": ["heart", "red heart"], "tier": "plankton", "weight": 3000 },
+        { "answer": "😂", "aliases": ["laughing", "crying laughing"], "tier": "tooclever", "weight": 900 },
+        { "answer": "😭", "aliases": ["crying", "sob"], "tier": "schooler", "weight": 700 },
+        { "answer": "🦭", "aliases": ["seal"], "tier": "rare", "weight": 150, "quip": "Dex's signature move" },
+        { "answer": "💀", "aliases": ["skull"], "tier": "deepcut", "weight": 30 },
+        { "answer": "🏳️‍🌈", "aliases": ["pride flag", "rainbow flag"], "tier": "krillion", "weight": 2, "auto_pick": true }
+      ] },
+    { "id": "likes-most-liked", "text": "Name someone whose messages get the most likes", "category": "likes", "review": true,
+      "answers": [
+        { "answer": "Bea", "tier": "plankton", "weight": 500 },
+        { "answer": "Avery", "tier": "schooler", "weight": 300 },
+        { "answer": "Cosmo", "tier": "rare", "weight": 100 },
+        { "answer": "Dex", "tier": "deepcut", "weight": 50 },
+        { "answer": "Juniper", "tier": "krillion", "weight": 10, "auto_pick": true }
+      ] },
+    { "id": "words-cosmo", "text": "Name a word Cosmo says way too much", "category": "words",
+      "answers": [
+        { "answer": "literally", "tier": "plankton", "weight": 400 },
+        { "answer": "bestie", "tier": "schooler", "weight": 120 },
+        { "answer": "girlboss", "tier": "rare", "weight": 30 },
+        { "answer": "unhinged", "tier": "deepcut", "weight": 9 },
+        { "answer": "flabbergasted", "tier": "krillion", "weight": 1, "quip": "Said exactly once, at 4am", "auto_pick": true }
+      ] },
+    { "id": "words-chat", "text": "Name a word this chat uses more than anyone should", "category": "words",
+      "answers": [
+        { "answer": "lmao", "aliases": ["lmfao"], "tier": "plankton", "weight": 5000 },
+        { "answer": "slay", "tier": "schooler", "weight": 600 },
+        { "answer": "crumb", "tier": "rare", "weight": 80 },
+        { "answer": "bombastic", "tier": "deepcut", "weight": 12 },
+        { "answer": "snorkel", "tier": "krillion", "weight": 2, "auto_pick": true }
+      ] },
+    { "id": "games-played", "text": "Name a game this chat has played together", "category": "games",
+      "answers": [
+        { "answer": "Mario Kart", "aliases": ["mk", "mariokart"], "tier": "plankton", "weight": 40 },
+        { "answer": "Chess", "tier": "tooclever", "weight": 25 },
+        { "answer": "Among Us", "tier": "schooler", "weight": 15 },
+        { "answer": "Codenames", "tier": "rare", "weight": 6 },
+        { "answer": "Wavelength", "tier": "deepcut", "weight": 2 },
+        { "answer": "Krill Bingo", "tier": "krillion", "weight": 0.5, "quip": "Invented by Juniper, banned by Bea", "auto_pick": true }
+      ] },
+    { "id": "places-hangouts", "text": "Name a place this chat has hung out", "category": "places",
+      "answers": [
+        { "answer": "Dex's basement", "aliases": ["basement", "dexs"], "tier": "plankton", "weight": 70 },
+        { "answer": "Café & Bar Lumière", "aliases": ["cafe lumiere", "lumiere"], "tier": "schooler", "weight": 20 },
+        { "answer": "The pier", "aliases": ["pier"], "tier": "rare", "weight": 7 },
+        { "answer": "Juniper's roof", "aliases": ["the roof", "roof"], "tier": "deepcut", "weight": 2 },
+        { "answer": "Laundromat on 5th", "aliases": ["laundromat"], "tier": "krillion", "weight": 1, "auto_pick": true }
+      ] },
+    { "id": "places-trips", "text": "Name a place someone in this chat went on a trip", "category": "places",
+      "answers": [
+        { "answer": "Seattle", "tier": "plankton", "weight": 30 },
+        { "answer": "Tofino", "tier": "schooler", "weight": 12 },
+        { "answer": "Montréal", "aliases": ["montreal"], "tier": "rare", "weight": 4 },
+        { "answer": "Reykjavík", "aliases": ["reykjavik", "iceland"], "tier": "deepcut", "weight": 1.2 },
+        { "answer": "Moose Jaw", "tier": "krillion", "weight": 0.4, "auto_pick": true }
+      ] },
+    { "id": "media-shows", "text": "Name a show this chat has argued about", "category": "media",
+      "answers": [
+        { "answer": "Roy's Dark Desires", "tier": "plankton", "weight": 90 },
+        { "answer": "Bake Off", "aliases": ["great british bake off", "gbbo"], "tier": "schooler", "weight": 30 },
+        { "answer": "Seal Island", "tier": "rare", "weight": 8 },
+        { "answer": "Moon Lawyers", "tier": "deepcut", "weight": 3 },
+        { "answer": "Tuesday Fog", "tier": "krillion", "weight": 0.6, "auto_pick": true }
+      ] },
+    { "id": "media-songs", "text": "Name a song someone posted at 3am", "category": "media",
+      "answers": [
+        { "answer": "Krill Me Softly", "tier": "plankton", "weight": 25 },
+        { "answer": "Barnacle Heart", "tier": "schooler", "weight": 9 },
+        { "answer": "Plankton Paradise", "tier": "rare", "weight": 3 },
+        { "answer": "Abyss Waltz", "tier": "deepcut", "weight": 1 },
+        { "answer": "Lullaby for a Lobster", "aliases": ["lobster lullaby"], "tier": "krillion", "weight": 0.2, "auto_pick": true }
+      ] }
+  ]
+}
